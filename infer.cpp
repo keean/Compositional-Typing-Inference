@@ -587,7 +587,7 @@ parser_handle<term_expression*> parse_exp(return_app &app, return_abs &abs,
 ) {
     return discard(attempt(start_tok))
             && strict("error parsing subexpression"
-            , log("exp", expr && discard(end_tok)))
+            , log("sub", expr && discard(end_tok)))
         || log("abs", discard(attempt(abs_tok))
             && strict("error parsing abstraction"
             , all(abs, name_tok, discard(dot_tok) && expr)))
@@ -612,7 +612,10 @@ public:
 
     term_expression* operator() () {
         parser_handle<term_expression*> const expr =
-            some(all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))));
+            all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr)))
+            && many(log("app", 
+                all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr)))
+            ));
 
         auto const parser = strict("error parsing expression", expr)
             && strict("unexpected trailing characters", attempt(discard(eof_tok)) || expr);
