@@ -326,6 +326,7 @@ class type_show : public type_visitor {
 
     bool debug;
     int vid;
+    ostream &out;
 
     int type_id(var_map_type &vs, int &v, type_variable const *const t) {
         auto const i = vs.find(t->id);
@@ -339,7 +340,7 @@ class type_show : public type_visitor {
 
 public:
     virtual void visit(type_literal *t) override {
-        cout << t->name;
+        out << t->name;
     }
 
     virtual void visit(type_variable *t) override {
@@ -351,38 +352,38 @@ public:
             x = x / 26;
         } while (x > 0);
         reverse(s.begin(), s.end());
-        cout << s;
+        out << s;
     }
 
     virtual void visit(type_application *t) override {
         if (visited.count(t) == 0) {
             visited.insert(t);
-            cout << "(";
+            out << "(";
             find(t->dom)->accept(this);
-        cout << " -> ";
+        out << " -> ";
             find(t->cod)->accept(this);
-            cout << ")";
+            out << ")";
             visited.erase(t);
         } else {
-            cout << "...";
+            out << "...";
         }
     }
 
     virtual void visit(type_product *t) override {
         if (visited.count(t) == 0) {
             visited.insert(t);
-            cout << "(";
+            out << "(";
             find(t->left)->accept(this);
-            cout << " * ";
+            out << " * ";
             find(t->right)->accept(this);
-            cout << ")";
+            out << ")";
             visited.erase(t);
         } else {
-            cout << "...";
+            out << "...";
         }
     }
 
-    explicit type_show(bool debug = false) : debug(debug), vid(0) {}
+    explicit type_show(ostream &out, bool debug = false) : debug(debug), vid(0), out(out) {}
 
     void operator() (type_expression *t) {
         if (t != nullptr) {
@@ -403,6 +404,7 @@ public:
 
 class term_show : public term_visitor {
     type_show show_type;
+    ostream &out;
 
     void term_show_type(type_expression *t) {
         if (t != nullptr) {
@@ -414,22 +416,22 @@ class term_show : public term_visitor {
         if (!(m.empty())) {
             mono_env_type::iterator const f(m.begin());
             mono_env_type::iterator const l(m.end());
-            cout << "{";
+            out << "{";
             for (mono_env_type::iterator i(f); i != l; ++i) {
-                cout << i->first << " : ";
+                out << i->first << " : ";
                 show_type(i->second);
                 mono_env_type::iterator j(i);
                 if (++j != l) {
-                    cout << ", ";
+                    out << ", ";
                 }
             }
-            cout << "} "; 
+            out << "} "; 
         }
     }
 
     void show_typing(typing_type &t) {
         show_mono_env(t.first);
-        cout << "|- ";
+        out << "|- ";
         term_show_type(t.second);
     }
 
@@ -438,83 +440,82 @@ class term_show : public term_visitor {
         if (!(p.empty())) {
             poly_env_type::iterator const f(m.begin());
             poly_env_type::iterator const l(m.end());
-            cout << "<";
+            out << "<";
             for (poly_env_type::iterator i(f); i != l; ++i) {
-                cout << i->first << " : ";
+                out << i->first << " : ";
                 show_typing(i->second);
                 poly_env_type::iterator j(i);
                 if (++j != l) {
-                    cout << ", ";
+                    out << ", ";
                 }
             }
-            cout << "> ";
+            out << "> ";
         }
     }
 
     void show_mod_type(mod_type &s) {
         show_poly_env(s.poly_env);
-        cout << " ";
+        out << " ";
         show_mono_env(s.mono_env);
-        cout << " |- ";
+        out << " |- ";
         term_show_type(s.type);
     }
 */
 
 public:
     virtual void visit(term_literal *t) override {
-        cout << t->value;
+        out << t->value;
     }
 
     virtual void visit(term_variable *t) override {
-        cout << t->name;
+        out << t->name;
     }
 
     virtual void visit(term_application *t) override {
-        cout << "(";
+        out << "(";
         t->fun->accept(this);
-        cout << " ";
+        out << " ";
         t->arg->accept(this);
-        cout << ")";
+        out << ")";
     }
 
     virtual void visit(term_abstraction *t) override {
-        cout << "(\\" << t->name << " . ";
+        out << "(\\" << t->name << " . ";
         t->body->accept(this);
-        cout << ")";
+        out << ")";
     }
 
     virtual void visit(term_let *t) override {
-        cout << "(let " << t->name << " = ";
+        out << "(let " << t->name << " = ";
         t->rhs->accept(this);
-        cout << " in ";
+        out << " in ";
         t->body->accept(this);
-        cout << ")";
+        out << ")";
     }
 
     virtual void visit(term_product *t) override {
-        cout << "(";
+        out << "(";
         t->lhs->accept(this);
-        cout << ", ";
+        out << ", ";
         t->rhs->accept(this);
-        cout << ")";
+        out << ")";
     }
 
-    explicit term_show(bool debug = false) : show_type(debug) {}
+    explicit term_show(ostream &out, bool debug = false) : show_type(out, debug), out(out) {}
 
     void operator() (term_expression *t) {
         if (t != nullptr) {
             t->accept(this);
-            cout << " : ";
+            out << " : ";
             show_type.reset();
             //show_mod_type(t->mod_type);
             show_typing(t->typing);
-            cout << "\n";
         }
     }
 };
 
 ostream& operator<< (ostream &out, term_expression* t) {
-    term_show show_term;
+    term_show show_term(out);
     show_term(t);
     return out;
 }
@@ -1006,7 +1007,7 @@ public:
     }
 
     explicit type_inference_c(ast_factory& ast)
-        : ast(ast), show_type(true), unify_types(&show_type) {}
+        : ast(ast), show_type(cout, true), unify_types(&show_type) {}
     
     void operator() (term_expression *t) {
         t->accept(this);
@@ -1018,27 +1019,28 @@ public:
 
 class explain: public term_visitor {
     term_show show_term;
+    ostream &out;
 
 public:
     virtual void visit(term_literal *t) override {
-        cout << "lit ---------------------------------------\n";
+        out << "lit ---------------------------------------\n";
         show_term(t);
-        cout << "\n";
+        out << "\n\n";
     }
     
     virtual void visit(term_variable *t) override {
-        cout << "var ---------------------------------------\n";
+        out << "var ---------------------------------------\n";
         show_term(t);
-        cout << "\n";
+        out << "\n\n";
     }
 
     virtual void visit(term_abstraction *t) override {
         t->body->accept(this);
 
         show_term(t->body);
-        cout << "abs ---------------------------------------\n";
+        out << "\nabs ---------------------------------------\n";
         show_term(t);
-        cout << "\n";
+        out << "\n\n";
     }
 
     virtual void visit(term_application *t) override {
@@ -1046,10 +1048,11 @@ public:
         t->arg->accept(this);
 
         show_term(t->fun);
+        out << "\n";
         show_term(t->arg);
-        cout << "app ---------------------------------------\n";
+        out << "\napp ---------------------------------------\n";
         show_term(t);
-        cout << "\n";
+        out << "\n\n";
     }
 
     virtual void visit(term_product *t) override {
@@ -1057,10 +1060,11 @@ public:
         t->rhs->accept(this);
 
         show_term(t->lhs);
+        out << "\n";
         show_term(t->rhs);
-        cout << "prd ---------------------------------------\n";
+        out << "\nprd ---------------------------------------\n";
         show_term(t);
-        cout << "\n";
+        out << "\n\n";
     }
 
     virtual void visit(term_let *t) override {
@@ -1068,13 +1072,14 @@ public:
         t->body->accept(this);
 
         show_term(t->rhs);
+        out << "\n";
         show_term(t->body);
-        cout << "let ---------------------------------------\n";
+        out << "\nlet ---------------------------------------\n";
         show_term(t);
-        cout << "\n";
+        out << "\n\n";
     }
 
-    explicit explain(bool debug = false) : show_term(debug) {}
+    explicit explain(ostream &out, bool debug = false) : show_term(out, debug), out(out) {}
 
     void operator() (term_expression *t) {
         if (t != nullptr) {
@@ -1101,7 +1106,7 @@ int main(int argc, char const *const *argv) {
                 //infer_types.poly_env["add_int"] = make_pair(m, ast.new_type_application(
                 //    n, ast.new_type_application(n, n)));
 
-                term_show show_term;
+                term_show show_term(cout);
 
                 fstream in(argv[i], ios_base::in);
                 if (in.is_open()) {
@@ -1113,10 +1118,10 @@ int main(int argc, char const *const *argv) {
 
                         try {
                             infer_types(exp);
-                            explain()(exp);
+                            (explain(cout))(exp);
                         } catch (inference_error &e) {
-                            explain exp(true);
-                            type_show show_type(true);
+                            explain exp(cout, true);
+                            type_show show_type(cout, true);
                             cout << e.what() << ":\n\n";
                             exp(e.term);
                             show_type(e.err.t1);
