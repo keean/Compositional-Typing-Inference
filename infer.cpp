@@ -61,16 +61,15 @@ public:
     }
 };
 
-typedef vector<type_expression*> row_type;
-
 class type_literal : public type_expression {
     friend class ast_factory;
     explicit type_literal(string const &name) : name(name) {}
-    type_literal(string const &name, row_type &&params) : name(name), params(params) {}
+    type_literal(string const &name, vector<type_expression*> &&params) 
+        : name(name), params(params) {}
 
 public:
     string const name;
-    row_type const params;
+    vector<type_expression*> const params;
     virtual void accept(class type_visitor *v) override;
 };
 
@@ -123,9 +122,9 @@ void type_product::accept(class type_visitor *v) {v->visit(this);}
 //----------------------------------------------------------------------------
 // Term Expression AST
 
-typedef multimap<string, type_expression*> mono_env_type;
+using mono_env_type = multimap<string, type_expression*>;
 
-typedef pair<mono_env_type, type_expression*> typing_type;
+using typing_type = pair<mono_env_type, type_expression*>;
 
 /*
 struct typing_type {
@@ -135,7 +134,7 @@ struct typing_type {
 
 // [{x : a -> b, x -> a} |- y : b]
 
-typedef multimap<string, typing_type> poly_env_type;
+using poly_env_type = multimap<string, typing_type>;
 
 // [{x : a -> b, x -> a} |- y : b] {x : a ->b, x : a} |- y = x x; y : b
 
@@ -319,7 +318,7 @@ public:
 // Show Type Graph
 
 class type_show : public type_visitor {
-    typedef map<int, int> var_map_type;
+    using var_map_type = map<int, int>;
 
     set<type_expression*> visited;
     var_map_type tvar_map;
@@ -638,7 +637,7 @@ public:
 // Instantiate Type in Monomorphic Environment
 
 class type_instantiate : public type_visitor {
-    typedef map<type_expression*, type_expression*> type_map_type;
+    using type_map_type = map<type_expression*, type_expression*>;
 
     ast_factory& ast;
 
@@ -717,7 +716,7 @@ struct unification_error : public runtime_error {
 };
 
 class type_unify : public type_visitor {
-    typedef pair<type_expression*, type_expression*> texp_pair;
+    using texp_pair = pair<type_expression*, type_expression*>;
     type_expression *u2;
     type_show *show_type;
 
@@ -748,8 +747,8 @@ public:
             if (s1 != t2->params.size()) {
                 throw unification_error(t1, t2);
             } else {
-                row_type::const_iterator f1 = t1->params.begin();
-                row_type::const_iterator f2 = t2->params.begin();
+                vector<type_expression*>::const_iterator f1 = t1->params.begin();
+                vector<type_expression*>::const_iterator f2 = t2->params.begin();
                 for (int i = s1; i > 0; --i) {
                     unify.queue(*(f1++), *(f2++));
                 }
@@ -896,7 +895,7 @@ struct inference_error : public runtime_error {
 };
 
 class type_inference_c: public term_visitor {
-    typedef map<string, type_expression*> tycon_type;
+    using tycon_type = map<string, type_expression*>;
 
     ast_factory& ast;
     type_show show_type;
