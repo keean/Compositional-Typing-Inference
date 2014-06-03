@@ -534,6 +534,18 @@ struct return_app {
     }
 };
 
+struct return_prd {
+    ast_factory& ast;
+    return_prd(ast_factory &ast) : ast(ast) {}
+    void operator() (term_expression **res, term_expression* term) const {
+        if (*res == nullptr) {
+            *res = term;
+        } else {
+            *res = ast.new_term_product(*res, term);
+        }
+    }
+};
+
 struct return_abs {
     ast_factory& ast;
     return_abs(ast_factory &ast) : ast(ast) {}
@@ -585,9 +597,9 @@ parser_handle<term_expression*> parse_exp(return_app &app, return_abs &abs,
     return_let &let, return_var &var, return_num &num,
     parser_handle<term_expression*> expr
 ) {
-    return discard(attempt(start_tok))
+    return log("sub", discard(attempt(start_tok))
             && strict("error parsing subexpression"
-            , log("sub", expr && discard(end_tok)))
+            , expr && discard(end_tok)))
         || log("abs", discard(attempt(abs_tok))
             && strict("error parsing abstraction"
             , all(abs, name_tok, discard(dot_tok) && expr)))
@@ -601,6 +613,7 @@ parser_handle<term_expression*> parse_exp(return_app &app, return_abs &abs,
 class term_parser {
     pstream in;
     return_app app;
+    return_prd prd;
     return_abs abs;
     return_let let;
     return_var var;
@@ -608,17 +621,20 @@ class term_parser {
 
 public:
     term_parser(ast_factory &ast, istream &fs)
-        : in(fs), app(ast), abs(ast), let(ast), var(ast), num(ast) {}
+        : in(fs), app(ast), prd(ast), abs(ast), let(ast), var(ast), num(ast) {}
 
     term_expression* operator() () {
         parser_handle<term_expression*> const expr =
-            all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr)))
-            && many(log("app", 
-                all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr)))
-            ));
+            strict("error parsing expression",
+                all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))
+            && many(
+                (discard(attempt(prod_tok)) && strict("error parsing expression", log("prd",
+                    all(prd, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))))
+                || log("app",
+                    all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))
+            );
 
-        auto const parser = strict("error parsing expression", expr)
-            && strict("unexpected trailing characters", attempt(discard(eof_tok)) || expr);
+        auto const parser = expr && strict("unexpected trailing characters", attempt(discard(eof_tok)) || expr);
 
         decltype(parser)::result_type res {};
 
