@@ -124,16 +124,21 @@ void type_product::accept(class type_visitor *v) {v->visit(this);}
 
 using mono_env_type = multimap<string, type_expression*>;
 
-using typing_type = pair<mono_env_type, type_expression*>;
+//using typing_type = pair<mono_env_type, type_expression*>;
 
-/*
 struct typing_type {
     mono_env_type mono_env;
     type_expression* type;
+
+    typing_type() : type(nullptr) {}
+
+    template <typename M, typename T>
+    typing_type(M&& m, T&& t) : mono_env(forward<M>(m)), type(forward<T>(t)) {}
 };
 
 // [{x : a -> b, x -> a} |- y : b]
 
+/*
 using poly_env_type = multimap<string, typing_type>;
 
 // [{x : a -> b, x -> a} |- y : b] {x : a ->b, x : a} |- y = x x; y : b
@@ -153,6 +158,7 @@ struct modular_type {
 struct term_expression : public ast {
     //modular_type mod_type;
     typing_type typing;
+    //term_expression(typing_type &t) : typing(t) {}
     virtual void accept(class term_visitor *v) = 0;
 };
 
@@ -236,6 +242,13 @@ void term_product::accept(class term_visitor *v) {v->visit(this);}
 
 class ast_factory {
     vector<unique_ptr<ast>> region;
+
+    typing_type infer_lit_type();
+    typing_type infer_var_type();
+    typing_type infer_prd_type(term_expression *x, term_expression *y);
+    typing_type infer_app_type(term_expression *x, term_expression *y);
+    typing_type infer_abs_type(term_expression *x);
+    typing_type infer_let_type(term_expression *x, term_expression *y);
 
 public:
 
@@ -429,9 +442,9 @@ class term_show : public term_visitor {
     }
 
     void show_typing(typing_type &t) {
-        show_mono_env(t.first);
+        show_mono_env(t.mono_env);
         out << "|- ";
-        term_show_type(t.second);
+        term_show_type(t.type);
     }
 
 /*
@@ -718,10 +731,10 @@ public:
 
     typing_type operator() (typing_type ty) {
         mono_env_type env;
-        for (auto const& v : ty.first) {
+        for (auto const& v : ty.mono_env) {
             env.insert(make_pair(v.first, inst(v.second)));
         }
-        return make_pair(env, inst(ty.second));
+        return typing_type(move(env), inst(ty.type));
     }
 };
 
@@ -924,17 +937,17 @@ class type_inference_c: public term_visitor {
         typing_instantiate inst(ast);
         typing = inst(body);
 
-        mono_env_type::iterator f {typing.first.lower_bound(name)};
-        mono_env_type::iterator const l {typing.first.upper_bound(name)};
+        mono_env_type::iterator f {typing.mono_env.lower_bound(name)};
+        mono_env_type::iterator const l {typing.mono_env.upper_bound(name)};
 
         type_expression *a = ast.new_type_variable();
         if (f != l) {
             while (f != l) {
                 unify_types(a, (f++)->second);
             }
-            typing.first.erase(name);
+            typing.mono_env.erase(name);
         }
-        typing.second = ast.new_type_application(a, typing.second);
+        typing.type = ast.new_type_application(a, typing.type);
     }
 
     void apply(typing_type const& fun, typing_type const& arg, typing_type& typing) {
@@ -942,10 +955,10 @@ class type_inference_c: public term_visitor {
         typing_type a = inst(arg);
         typing_type f = inst(fun);
 
-        typing.first = f.first;
-        typing.first.insert(a.first.begin(), a.first.end());
-        typing.second = ast.new_type_variable();
-        unify_types(f.second, ast.new_type_application(a.second, typing.second));
+        typing.mono_env = f.mono_env;
+        typing.mono_env.insert(a.mono_env.begin(), a.mono_env.end());
+        typing.type = ast.new_type_variable();
+        unify_types(f.type, ast.new_type_application(a.type, typing.type));
     }
 
 public:
@@ -955,18 +968,18 @@ public:
     type_expression *const literal_bool = ast.new_type_literal("Bool");
 
     virtual void visit(term_literal *t) override {
-        t->typing.second = literal_int;
+        t->typing.type = literal_int;
     }
     
     virtual void visit(term_variable *t) override {
         tycon_type::const_iterator j(tycons.find(t->name));
         if (j == tycons.end()) {
             type_expression *beta = ast.new_type_variable();
-            t->typing.first.insert(make_pair(t->name, beta));
-            t->typing.second = beta;
+            t->typing.mono_env.insert(make_pair(t->name, beta));
+            t->typing.type = beta;
         } else {
             type_instantiate inst(ast);
-            t->typing.second = inst(j->second);
+            t->typing.type = inst(j->second);
         }
     }
 
@@ -995,9 +1008,9 @@ public:
         t->lhs->accept(this);
         t->rhs->accept(this);
 
-        t->typing.first = t->lhs->typing.first;
-        t->typing.first.insert(t->rhs->typing.first.begin(), t->rhs->typing.first.end());
-        t->typing.second = ast.new_type_product(t->lhs->typing.second, t->rhs->typing.second);
+        t->typing.mono_env = t->lhs->typing.mono_env;
+        t->typing.mono_env.insert(t->rhs->typing.mono_env.begin(), t->rhs->typing.mono_env.end());
+        t->typing.type = ast.new_type_product(t->lhs->typing.type, t->rhs->typing.type);
     }
 
     virtual void visit(term_let *t) override {
@@ -1008,15 +1021,15 @@ public:
         typing_type body = inst(t->body->typing);
 
         t->typing = body;
-        t->typing.first.erase(t->name);
-        mono_env_type::iterator f {body.first.lower_bound(t->name)};
-        mono_env_type::iterator const l {body.first.upper_bound(t->name)};
+        t->typing.mono_env.erase(t->name);
+        mono_env_type::iterator f {body.mono_env.lower_bound(t->name)};
+        mono_env_type::iterator const l {body.mono_env.upper_bound(t->name)};
         try {
             while (f != l) {
                 typing_instantiate inst(ast);
                 typing_type gen {inst(t->rhs->typing)};
-                unify_types(gen.second, f->second);
-                t->typing.first.insert(gen.first.begin(), gen.first.end());
+                unify_types(gen.type, f->second);
+                t->typing.mono_env.insert(gen.mono_env.begin(), gen.mono_env.end());
                 ++f;
             }
         } catch (unification_error& e) {
