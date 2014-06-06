@@ -25,6 +25,7 @@ using namespace std;
 class ast {};
 
 class type_expression : public ast {
+    static int next_count;
     type_expression *canonical;
     int rank;
 
@@ -63,11 +64,12 @@ public:
 
 class type_literal : public type_expression {
     friend class ast_factory;
+
+public:
     explicit type_literal(string const &name) : name(name) {}
     type_literal(string const &name, vector<type_expression*> &&params) 
         : name(name), params(params) {}
 
-public:
     string const name;
     vector<type_expression*> const params;
     virtual void accept(class type_visitor *v) override;
@@ -118,214 +120,6 @@ void type_literal::accept(class type_visitor *v) {v->visit(this);}
 void type_variable::accept(class type_visitor *v) {v->visit(this);}
 void type_application::accept(class type_visitor *v) {v->visit(this);}
 void type_product::accept(class type_visitor *v) {v->visit(this);}
-
-//----------------------------------------------------------------------------
-// Term Expression AST
-
-using mono_env_type = multimap<string, type_expression*>;
-
-//using typing_type = pair<mono_env_type, type_expression*>;
-
-struct typing_type {
-    mono_env_type mono_env;
-    type_expression* type;
-
-    typing_type() : type(nullptr) {}
-
-    template <typename M, typename T>
-    typing_type(M&& m, T&& t) : mono_env(forward<M>(m)), type(forward<T>(t)) {}
-};
-
-// [{x : a -> b, x -> a} |- y : b]
-
-/*
-using poly_env_type = multimap<string, typing_type>;
-
-// [{x : a -> b, x -> a} |- y : b] {x : a ->b, x : a} |- y = x x; y : b
-
-struct modular_type {
-    // exports
-    poly_env_type poly_env;
-
-    // requirements
-    mono_env_type mono_env;
-
-    // result type
-    type_expression* type;
-};
-*/
-
-struct term_expression : public ast {
-    //modular_type mod_type;
-    typing_type typing;
-    //term_expression(typing_type &t) : typing(t) {}
-    virtual void accept(class term_visitor *v) = 0;
-};
-
-class term_literal : public term_expression {
-    friend class ast_factory;
-    explicit term_literal(int value) : value(value) {}
-
-public:
-    int const value;
-    virtual void accept(class term_visitor *v) override;
-};
-
-class term_variable : public term_expression {
-    friend class ast_factory;
-    explicit term_variable(string const& name) : name(name) {}
-
-public:
-    string const name;
-    virtual void accept(class term_visitor *v) override;
-};
-
-class term_application : public term_expression {
-    friend class ast_factory;
-    term_application(term_expression *fun, term_expression *arg)
-    : fun(fun), arg(arg) {}
-
-public:
-    term_expression *const fun, *const arg;
-    virtual void accept(class term_visitor *v) override;
-};
-
-class term_abstraction : public term_expression {
-    friend class ast_factory;
-    term_abstraction(string const& name, term_expression *body)
-    : name(name), body(body) {}
-
-public:
-    string const name;
-    term_expression* const body;
-    virtual void accept(class term_visitor *v) override;
-};
-
-class term_let : public term_expression {
-    friend class ast_factory;
-    term_let(string const& name, term_expression *rhs, term_expression *body)
-    : name(name), rhs(move(rhs)), body(body) {}
-
-public:
-    string const name;
-    term_expression *const rhs, *const body;
-    virtual void accept(class term_visitor *v) override;
-};
-
-class term_product : public term_expression {
-    friend class ast_factory;
-    term_product(term_expression *lhs, term_expression *rhs) : rhs(rhs), lhs(lhs) {}
-
-public:
-    term_expression *const lhs, *const rhs;
-    virtual void accept(class term_visitor *v) override;
-};
-
-struct term_visitor {
-    virtual void visit(term_literal *t) = 0;
-    virtual void visit(term_variable *t) = 0;
-    virtual void visit(term_application *t) = 0;
-    virtual void visit(term_abstraction *t) = 0;
-    virtual void visit(term_let *t) = 0;
-    virtual void visit(term_product *t) = 0;
-};
-
-void term_literal::accept(class term_visitor *v) {v->visit(this);}
-void term_variable::accept(class term_visitor *v) {v->visit(this);}
-void term_application::accept(class term_visitor *v) {v->visit(this);}
-void term_abstraction::accept(class term_visitor *v) {v->visit(this);}
-void term_let::accept(class term_visitor *v) {v->visit(this);}
-void term_product::accept(class term_visitor *v) {v->visit(this);}
-
-//----------------------------------------------------------------------------
-// RAII AST Factory
-
-class ast_factory {
-    vector<unique_ptr<ast>> region;
-
-    typing_type infer_lit_type();
-    typing_type infer_var_type();
-    typing_type infer_prd_type(term_expression *x, term_expression *y);
-    typing_type infer_app_type(term_expression *x, term_expression *y);
-    typing_type infer_abs_type(term_expression *x);
-    typing_type infer_let_type(term_expression *x, term_expression *y);
-
-public:
-
-    // Types
-    
-    type_literal* new_type_literal(string const &name) {
-        unique_ptr<type_literal> e(new type_literal(name));
-        type_literal *f = e.get();
-        region.push_back(unique_ptr<ast>(move(e)));
-        return f;
-    }
-
-    type_variable* new_type_variable() {
-        unique_ptr<type_variable> e(new type_variable());
-        type_variable *f = e.get();
-        region.push_back(unique_ptr<ast>(move(e)));
-        return f;
-    }
-
-    type_application* new_type_application(type_expression *dom, type_expression *cod) {
-        unique_ptr<type_application> e(new type_application(dom, cod));
-        type_application *f = e.get();
-        region.push_back(unique_ptr<ast>(move(e)));
-        return f;
-    }
-
-    type_product* new_type_product(type_expression *l, type_expression *r) {
-        unique_ptr<type_product> e(new type_product(l, r));
-        type_product *f = e.get();
-        region.push_back(unique_ptr<ast>(move(e)));
-        return f;
-    }
-
-    // Terms
-
-    term_literal* new_term_literal(int value) {
-        unique_ptr<term_literal> e(new term_literal(value));
-        term_literal *f = e.get();
-        region.push_back(unique_ptr<ast>(move(e)));
-        return f;
-    }
-
-    term_variable* new_term_variable(string const &name) {
-        unique_ptr<term_variable> e(new term_variable(name));
-        term_variable *f = e.get();
-        region.push_back(unique_ptr<ast>(move(e)));
-        return f;
-    }
-
-    term_application* new_term_application(term_expression *fun, term_expression *arg) {
-        unique_ptr<term_application> e(new term_application(fun, arg));
-        term_application *f = e.get();
-        region.push_back(unique_ptr<ast>(move(e)));
-        return f;
-    }
-
-    term_abstraction* new_term_abstraction(string const& name, term_expression *body) {
-        unique_ptr<term_abstraction> e(new term_abstraction(name, body));
-        term_abstraction *f = e.get();
-        region.push_back(unique_ptr<ast>(move(e)));
-        return f;
-    }
-
-    term_let* new_term_let(string const& name, term_expression *rhs, term_expression *body) {
-        unique_ptr<term_let> e(new term_let(name, rhs, body));
-        term_let *f = e.get();
-        region.push_back(unique_ptr<ast>(move(e)));
-        return f;
-    }
-
-    term_product* new_term_product(term_expression *lhs, term_expression *rhs) {
-        unique_ptr<term_product> e(new term_product(lhs, rhs));
-        term_product *f = e.get();
-        region.push_back(unique_ptr<ast>(move(e)));
-        return f;
-    }
-};
 
 //----------------------------------------------------------------------------
 // Show Type Graph
@@ -411,6 +205,153 @@ public:
     }
 };
     
+//----------------------------------------------------------------------------
+// Term Expression AST
+
+using mono_env_type = multimap<string, type_expression*>;
+
+struct typing_type {
+    mono_env_type mono_env;
+    type_expression* type;
+
+    typing_type() : type(nullptr) {}
+
+    template <typename M, typename T>
+    typing_type(M&& m, T&& t) : mono_env(forward<M>(m)), type(forward<T>(t)) {}
+};
+
+// [{x : a -> b, x -> a} |- y : b]
+
+/*
+using poly_env_type = multimap<string, typing_type>;
+
+// [{x : a -> b, x -> a} |- y : b] {x : a ->b, x : a} |- y = x x; y : b
+
+struct modular_type {
+    // exports
+    poly_env_type poly_env;
+
+    // requirements
+    mono_env_type mono_env;
+
+    // result type
+    type_expression* type;
+};
+*/
+
+struct term_expression : public ast {
+    static int next_count;
+    //modular_type mod_type;
+    typing_type typing;
+    term_expression() : count(++next_count) {}
+
+    template <typename T>
+    term_expression(T&& t) : typing(forward<T>(t)), count(++next_count) {}
+
+    virtual void accept(class term_visitor *v) = 0;
+
+    int count;
+};
+
+int term_expression::next_count = 0;
+
+class term_literal : public term_expression {
+    friend class ast_factory;
+    explicit term_literal(int value) : value(value) {}
+
+    template <typename T>
+    term_literal(int v, T&& t) : term_expression(forward<T>(t)), value(v) {}
+
+public:
+    int const value;
+    virtual void accept(class term_visitor *v) override;
+};
+
+class term_variable : public term_expression {
+    friend class ast_factory;
+    explicit term_variable(string const& name) : name(name) {}
+
+    template <typename T>
+    term_variable(string const& n, T&& t) : term_expression(forward<T>(t)), name(n) {}
+
+public:
+    string const name;
+    virtual void accept(class term_visitor *v) override;
+};
+
+class term_application : public term_expression {
+    friend class ast_factory;
+    term_application(term_expression *fun, term_expression *arg)
+        : fun(fun), arg(arg) {}
+
+    template <typename T>
+    term_application(term_expression *f, term_expression *a, T&& t)
+        : term_expression(forward<T>(t)), fun(f), arg(a) {}
+
+public:
+    term_expression *const fun, *const arg;
+    virtual void accept(class term_visitor *v) override;
+};
+
+class term_abstraction : public term_expression {
+    friend class ast_factory;
+    term_abstraction(string const& name, term_expression *body)
+        : name(name), body(body) {}
+
+    template <typename T>
+    term_abstraction(string const& n, term_expression *b, T&& t) 
+        : term_expression(forward<T>(t)), name(n), body(b) {}
+
+public:
+    string const name;
+    term_expression* const body;
+    virtual void accept(class term_visitor *v) override;
+};
+
+class term_let : public term_expression {
+    friend class ast_factory;
+    term_let(string const& name, term_expression *rhs, term_expression *body)
+        : name(name), rhs(move(rhs)), body(body) {}
+
+    template <typename T>
+    term_let(string const& n, term_expression *r, term_expression *b, T&& t)
+        : term_expression(forward<T>(t)), name(n), rhs(r), body(b) {}
+
+public:
+    string const name;
+    term_expression *const rhs, *const body;
+    virtual void accept(class term_visitor *v) override;
+};
+
+class term_product : public term_expression {
+    friend class ast_factory;
+    term_product(term_expression *lhs, term_expression *rhs) : rhs(rhs), lhs(lhs) {}
+
+    template <typename T>
+    term_product(term_expression *l, term_expression *r, T&& t)
+        : term_expression(forward<T>(t)), lhs(l), rhs(r) {}
+
+public:
+    term_expression *const lhs, *const rhs;
+    virtual void accept(class term_visitor *v) override;
+};
+
+struct term_visitor {
+    virtual void visit(term_literal *t) = 0;
+    virtual void visit(term_variable *t) = 0;
+    virtual void visit(term_application *t) = 0;
+    virtual void visit(term_abstraction *t) = 0;
+    virtual void visit(term_let *t) = 0;
+    virtual void visit(term_product *t) = 0;
+};
+
+void term_literal::accept(class term_visitor *v) {v->visit(this);}
+void term_variable::accept(class term_visitor *v) {v->visit(this);}
+void term_application::accept(class term_visitor *v) {v->visit(this);}
+void term_abstraction::accept(class term_visitor *v) {v->visit(this);}
+void term_let::accept(class term_visitor *v) {v->visit(this);}
+void term_product::accept(class term_visitor *v) {v->visit(this);}
+
 //----------------------------------------------------------------------------
 // Show Term Tree
 
@@ -533,218 +474,25 @@ ostream& operator<< (ostream &out, term_expression* t) {
 }
   
 //----------------------------------------------------------------------------
-// Term Parser 
-
-struct return_app {
-    ast_factory& ast;
-    return_app(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res, term_expression* term) const {
-        if (*res == nullptr) {
-            *res = term;
-        } else {
-            *res = ast.new_term_application(*res, term);
-        }
-    }
-};
-
-struct return_prd {
-    ast_factory& ast;
-    return_prd(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res, term_expression* term) const {
-        if (*res == nullptr) {
-            *res = term;
-        } else {
-            *res = ast.new_term_product(*res, term);
-        }
-    }
-};
-
-struct return_abs {
-    ast_factory& ast;
-    return_abs(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res, string &name, term_expression *expr) const {
-        *res = ast.new_term_abstraction(name, expr);
-    }
-};
-
-struct return_let {
-    ast_factory& ast;
-    return_let(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res,
-        string const& name, term_expression *rhs, term_expression *body
-    ) const {
-        *res = ast.new_term_let(name, rhs, body);
-    }
-};
-
-struct return_var {
-    ast_factory& ast;
-    return_var(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res, string &name) const {
-        *res = ast.new_term_variable(name);
-    }
-};
-
-struct return_num {
-    ast_factory& ast;
-    return_num(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res, string &num) const {
-        *res = ast.new_term_literal(stoi(num));
-    }
-};
-
-auto const num_tok = name("number", tokenise(some(accept(is_digit))));
-auto const name_tok = except("let", except("in"
-    , name("name", tokenise(some(accept(is_alpha)) && many(accept(is_alnum))))));
-auto const abs_tok =  tokenise(accept(is_char('\\')));
-auto const dot_tok =  tokenise(accept(is_char('.')));
-auto const start_tok = tokenise(accept(is_char('(')));
-auto const end_tok = tokenise(accept(is_char(')')));
-auto const let_tok = tokenise(accept_str("let"));
-auto const ass_tok = tokenise(accept(is_char('=')));
-auto const in_tok = tokenise(accept_str("in"));
-auto const prod_tok = tokenise(accept(is_char(',')));
-auto const eof_tok = name("end-of-file", tokenise(accept(is_char(EOF))));
-    
-parser_handle<term_expression*> parse_exp(return_app &app, return_abs &abs,
-    return_let &let, return_var &var, return_num &num,
-    parser_handle<term_expression*> expr
-) {
-    return log("sub", discard(attempt(start_tok))
-            && strict("error parsing subexpression"
-            , expr && discard(end_tok)))
-        || log("abs", discard(attempt(abs_tok))
-            && strict("error parsing abstraction"
-            , all(abs, name_tok, discard(dot_tok) && expr)))
-        || log("let", discard(attempt(let_tok))
-            && strict("error parsing let"
-            , all(let, name_tok, discard(ass_tok) && expr, discard(in_tok) && expr)))
-        || log("var", all(var, attempt(name_tok)))
-        || log("num", all(num, attempt(num_tok)));
-}
-
-class term_parser {
-    pstream in;
-    return_app app;
-    return_prd prd;
-    return_abs abs;
-    return_let let;
-    return_var var;
-    return_num num;
-
-public:
-    term_parser(ast_factory &ast, istream &fs)
-        : in(fs), app(ast), prd(ast), abs(ast), let(ast), var(ast), num(ast) {}
-
-    term_expression* operator() () {
-        parser_handle<term_expression*> const expr =
-            strict("error parsing expression",
-                all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))
-            && many(
-                (discard(attempt(prod_tok)) && strict("error parsing expression", log("prd",
-                    all(prd, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))))
-                || log("app",
-                    all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))
-            );
-
-        auto const parser = expr && strict("unexpected trailing characters", attempt(discard(eof_tok)) || expr);
-
-        decltype(parser)::result_type res {};
-
-        try {
-            if (!parser(in, &res)) {
-                throw runtime_error("parser failed without generating an error message.");
-            }
-        } catch (parse_error& e) {
-            stringstream err;
-            err << e;
-            throw runtime_error(err.str());
-        }
-
-        return res;
-    }
-};
-        
-//----------------------------------------------------------------------------
-// Instantiate Type in Monomorphic Environment
-
-class type_instantiate : public type_visitor {
-    using type_map_type = map<type_expression*, type_expression*>;
-
-    ast_factory& ast;
-
-    type_map_type tapp_map;
-    type_map_type tvar_map;
-    type_expression *exp;
-
-public:
-    virtual void visit(type_literal *const t) override {
-        exp = t;
-    }
-
-    virtual void visit(type_variable *const t) override {
-        type_map_type::iterator const i = tvar_map.find(t);
-        if (i == tvar_map.end()) { // fresh type variable
-            type_variable *const n = ast.new_type_variable();
-            tvar_map[t] = n;
-            exp = n;
-        } else { // var in local scope
-            exp = i->second;
-        }
-    }
-
-    virtual void visit(type_application *const t) override {
-        type_map_type::iterator const i = tapp_map.find(t);
-        if (i == tapp_map.end()) { 
-            type_application *const n = ast.new_type_application(nullptr, nullptr);
-            tapp_map[t] = n;
-            find(t->dom)->accept(this);
-            n->dom = exp;
-            find(t->cod)->accept(this);
-            n->cod = exp;
-            exp = n;
-        } else {
-            exp = i->second;
-        }
-    }
-
-    virtual void visit(type_product *const t) override {
-        find(t->left)->accept(this);
-        type_expression *const left = exp;
-        find(t->right)->accept(this);
-        exp = ast.new_type_product(left, exp);
-    }
-
-    explicit type_instantiate(ast_factory& ast) : ast(ast) {}
-
-    type_expression* operator() (type_expression *const t) {
-        find(t)->accept(this);
-        return exp;
-    }
-};
-
-class typing_instantiate {
-    type_instantiate inst;
-
-public:
-    typing_instantiate(ast_factory &ast) : inst(ast) {}
-
-    typing_type operator() (typing_type ty) {
-        mono_env_type env;
-        for (auto const& v : ty.mono_env) {
-            env.insert(make_pair(v.first, inst(v.second)));
-        }
-        return typing_type(move(env), inst(ty.type));
-    }
-};
-
-//----------------------------------------------------------------------------
 // Type Graph Unification
 
 struct unification_error : public runtime_error {
     type_expression *t1, *t2;
     unification_error(type_expression *t1, type_expression *t2)
-        : runtime_error("unification error"), t1(t1), t2(t2) {}
+        : runtime_error("error unifying"), t1(t1), t2(t2) {}
+
+    virtual const char* what() const noexcept override {
+        stringstream err;
+        type_show show_type(err);
+
+        err << runtime_error::what() << ": ";
+        show_type(t1);
+        err << " ";
+        show_type(t2);
+        err << "\n";
+
+        return err.str().c_str();
+    }
 };
 
 class type_unify : public type_visitor {
@@ -917,6 +665,11 @@ public:
 };
 
 //----------------------------------------------------------------------------
+// RAII AST Factory
+
+class ast_factory;
+
+//----------------------------------------------------------------------------
 // Type Inference: Compositional Typings
 
 struct inference_error : public runtime_error {
@@ -926,124 +679,286 @@ struct inference_error : public runtime_error {
         : runtime_error("inference error"), err(move(err)), term(term) {}
 };
 
-class type_inference_c: public term_visitor {
+class type_inference {
     using tycon_type = map<string, type_expression*>;
 
     ast_factory& ast;
-    type_show show_type;
     type_unify unify_types;
-
-    void abstract(string const& name, typing_type const& body, typing_type& typing) {
-        typing_instantiate inst(ast);
-        typing = inst(body);
-
-        mono_env_type::iterator f {typing.mono_env.lower_bound(name)};
-        mono_env_type::iterator const l {typing.mono_env.upper_bound(name)};
-
-        type_expression *a = ast.new_type_variable();
-        if (f != l) {
-            while (f != l) {
-                unify_types(a, (f++)->second);
-            }
-            typing.mono_env.erase(name);
-        }
-        typing.type = ast.new_type_application(a, typing.type);
-    }
-
-    void apply(typing_type const& fun, typing_type const& arg, typing_type& typing) {
-        typing_instantiate inst(ast);
-        typing_type a = inst(arg);
-        typing_type f = inst(fun);
-
-        typing.mono_env = f.mono_env;
-        typing.mono_env.insert(a.mono_env.begin(), a.mono_env.end());
-        typing.type = ast.new_type_variable();
-        unify_types(f.type, ast.new_type_application(a.type, typing.type));
-    }
 
 public:
     tycon_type tycons;
 
-    type_expression *const literal_int = ast.new_type_literal("Int");
-    type_expression *const literal_bool = ast.new_type_literal("Bool");
+    type_expression *const literal_int;
+    type_expression *const literal_bool;
 
-    virtual void visit(term_literal *t) override {
-        t->typing.type = literal_int;
+    type_inference(ast_factory& ast);
+    typing_type lit();
+    typing_type var(string const& name);
+    typing_type abs(string const& name, typing_type const& body);
+    typing_type prd(typing_type const& lhs, typing_type const& rhs);
+    typing_type app(typing_type const& fun, typing_type const& arg);
+    typing_type let(string const& name, typing_type const& rhs, typing_type const& body);
+};
+
+//----------------------------------------------------------------------------
+// RAII AST Factory
+
+class ast_factory {
+    vector<unique_ptr<ast>> region;
+    type_inference infer;
+
+public:
+
+    ast_factory() : infer(*this) {
+        infer.tycons["true"] = infer.literal_bool;
+        infer.tycons["false"] = infer.literal_bool;
     }
+
+
+    // Types
     
-    virtual void visit(term_variable *t) override {
-        tycon_type::const_iterator j(tycons.find(t->name));
-        if (j == tycons.end()) {
-            type_expression *beta = ast.new_type_variable();
-            t->typing.mono_env.insert(make_pair(t->name, beta));
-            t->typing.type = beta;
-        } else {
-            type_instantiate inst(ast);
-            t->typing.type = inst(j->second);
-        }
+    type_literal* new_type_literal(string const &name) {
+        unique_ptr<type_literal> e(new type_literal(name));
+        type_literal *f = e.get();
+        region.push_back(unique_ptr<ast>(move(e)));
+        return f;
     }
 
-    virtual void visit(term_abstraction *t) override {
-        t->body->accept(this);
-
-        try {
-            abstract(t->name, t->body->typing, t->typing);
-        } catch (unification_error& e) {
-            throw inference_error(move(e), t);
-        }
+    type_variable* new_type_variable() {
+        unique_ptr<type_variable> e(new type_variable());
+        type_variable *f = e.get();
+        region.push_back(unique_ptr<ast>(move(e)));
+        return f;
     }
 
-    virtual void visit(term_application *t) override {
-        t->fun->accept(this);
-        t->arg->accept(this);
-
-        try {
-            apply(t->fun->typing, t->arg->typing, t->typing);
-        } catch (unification_error& e) {
-            throw inference_error(move(e), t);
-        }
+    type_application* new_type_application(type_expression *dom, type_expression *cod) {
+        unique_ptr<type_application> e(new type_application(dom, cod));
+        type_application *f = e.get();
+        region.push_back(unique_ptr<ast>(move(e)));
+        return f;
     }
 
-    virtual void visit(term_product *t) override {
-        t->lhs->accept(this);
-        t->rhs->accept(this);
-
-        t->typing.mono_env = t->lhs->typing.mono_env;
-        t->typing.mono_env.insert(t->rhs->typing.mono_env.begin(), t->rhs->typing.mono_env.end());
-        t->typing.type = ast.new_type_product(t->lhs->typing.type, t->rhs->typing.type);
+    type_product* new_type_product(type_expression *l, type_expression *r) {
+        unique_ptr<type_product> e(new type_product(l, r));
+        type_product *f = e.get();
+        region.push_back(unique_ptr<ast>(move(e)));
+        return f;
     }
 
-    virtual void visit(term_let *t) override {
-        t->rhs->accept(this);
-        t->body->accept(this);
+    // Terms
 
-        typing_instantiate inst(ast);
-        typing_type body = inst(t->body->typing);
-
-        t->typing = body;
-        t->typing.mono_env.erase(t->name);
-        mono_env_type::iterator f {body.mono_env.lower_bound(t->name)};
-        mono_env_type::iterator const l {body.mono_env.upper_bound(t->name)};
-        try {
-            while (f != l) {
-                typing_instantiate inst(ast);
-                typing_type gen {inst(t->rhs->typing)};
-                unify_types(gen.type, f->second);
-                t->typing.mono_env.insert(gen.mono_env.begin(), gen.mono_env.end());
-                ++f;
-            }
-        } catch (unification_error& e) {
-            throw inference_error(move(e), t);
-        }
+    term_literal* new_term_literal(int value) {
+        unique_ptr<term_literal> e(new term_literal(value, infer.lit()));
+        term_literal *f = e.get();
+        region.push_back(unique_ptr<ast>(move(e)));
+        return f;
     }
 
-    explicit type_inference_c(ast_factory& ast)
-        : ast(ast), show_type(cout, true), unify_types(&show_type) {}
-    
-    void operator() (term_expression *t) {
-        t->accept(this);
+    term_variable* new_term_variable(string const &name) {
+        unique_ptr<term_variable> e(new term_variable(name, infer.var(name)));
+        term_variable *f = e.get();
+        region.push_back(unique_ptr<ast>(move(e)));
+        return f;
+    }
+
+    term_abstraction* new_term_abstraction(string const& name, term_expression *body) {
+        unique_ptr<term_abstraction> e(
+            new term_abstraction(name, body, infer.abs(name, body->typing)));
+        term_abstraction *f = e.get();
+        region.push_back(unique_ptr<ast>(move(e)));
+        return f;
+    }
+
+    term_application* new_term_application(term_expression *fun, term_expression *arg) {
+        unique_ptr<term_application> e(
+            new term_application(fun, arg, infer.app(fun->typing, arg->typing)));
+        term_application *f = e.get();
+        region.push_back(unique_ptr<ast>(move(e)));
+        return f;
+    }
+
+    term_product* new_term_product(term_expression *lhs, term_expression *rhs) {
+        unique_ptr<term_product> e(
+            new term_product(lhs, rhs, infer.prd(lhs->typing, rhs->typing)));
+        term_product *f = e.get();
+        region.push_back(unique_ptr<ast>(move(e)));
+        return f;
+    }
+
+    term_let* new_term_let(string const& name, term_expression *rhs, term_expression *body) {
+        unique_ptr<term_let> e(
+            new term_let(name, rhs, body, infer.let(name, rhs->typing, body->typing)));
+        term_let *f = e.get();
+        region.push_back(unique_ptr<ast>(move(e)));
+        return f;
     }
 };
+
+//----------------------------------------------------------------------------
+// Instantiate Type in Monomorphic Environment
+
+class type_instantiate : public type_visitor {
+    using type_map_type = map<type_expression*, type_expression*>;
+
+    ast_factory& ast;
+
+    type_map_type tapp_map;
+    type_map_type tvar_map;
+    type_expression *exp;
+
+public:
+    virtual void visit(type_literal *const t) override {
+        exp = t;
+    }
+
+    virtual void visit(type_variable *const t) override {
+        type_map_type::iterator const i = tvar_map.find(t);
+        if (i == tvar_map.end()) { // fresh type variable
+            type_variable *const n = ast.new_type_variable();
+            tvar_map[t] = n;
+            exp = n;
+        } else { // var in local scope
+            exp = i->second;
+        }
+    }
+
+    virtual void visit(type_application *const t) override {
+        type_map_type::iterator const i = tapp_map.find(t);
+        if (i == tapp_map.end()) { 
+            type_application *const n = ast.new_type_application(nullptr, nullptr);
+            tapp_map[t] = n;
+            find(t->dom)->accept(this);
+            n->dom = exp;
+            find(t->cod)->accept(this);
+            n->cod = exp;
+            exp = n;
+        } else {
+            exp = i->second;
+        }
+    }
+
+    virtual void visit(type_product *const t) override {
+        find(t->left)->accept(this);
+        type_expression *const left = exp;
+        find(t->right)->accept(this);
+        exp = ast.new_type_product(left, exp);
+    }
+
+    explicit type_instantiate(ast_factory& ast) : ast(ast) {}
+
+    type_expression* operator() (type_expression *const t) {
+        find(t)->accept(this);
+        return exp;
+    }
+};
+
+class typing_instantiate {
+    type_instantiate inst;
+
+public:
+    typing_instantiate(ast_factory &ast) : inst(ast) {}
+
+    typing_type operator() (typing_type ty) {
+        mono_env_type env;
+        for (auto const& v : ty.mono_env) {
+            env.insert(make_pair(v.first, inst(v.second)));
+        }
+        return typing_type(move(env), inst(ty.type));
+    }
+};
+
+//----------------------------------------------------------------------------
+// Type Inference: Compositional Typings
+
+type_inference::type_inference(ast_factory &ast) : ast(ast)
+    , literal_int(ast.new_type_literal("Int"))
+    , literal_bool(ast.new_type_literal("Bool")) {}
+
+typing_type type_inference::lit() {
+    typing_type t;
+
+    t.type = literal_int;
+    return move(t);
+}
+
+typing_type type_inference::var(string const& name) {
+    typing_type t;
+
+    tycon_type::const_iterator j(tycons.find(name));
+    if (j == tycons.end()) {
+        type_expression *beta = ast.new_type_variable();
+        t.mono_env.insert(make_pair(name, beta));
+        t.type = beta;
+    } else {
+        type_instantiate inst(ast);
+        t.type = inst(j->second);
+    }
+
+    return move(t);
+}
+
+typing_type type_inference::abs(string const& name, typing_type const& body) {
+    typing_instantiate inst(ast);
+    typing_type t = inst(body);
+    mono_env_type::iterator f {t.mono_env.lower_bound(name)};
+    mono_env_type::iterator const l {t.mono_env.upper_bound(name)};
+    type_expression *a = ast.new_type_variable();
+
+    if (f != l) {
+        while (f != l) {
+            unify_types(a, (f++)->second);
+        }
+    }
+
+    t.mono_env.erase(name);
+    t.type = ast.new_type_application(a, t.type);
+
+    return move(t);
+}
+
+typing_type type_inference::app(typing_type const& fun, typing_type const& arg) {
+    typing_instantiate inst(ast);
+    typing_type a = inst(arg);
+    typing_type f = inst(fun);
+    typing_type t;
+
+    t.mono_env = f.mono_env;
+    t.mono_env.insert(a.mono_env.begin(), a.mono_env.end());
+    t.type = ast.new_type_variable();
+    unify_types(f.type, ast.new_type_application(a.type, t.type));
+
+    return move(t);
+}
+
+typing_type type_inference::prd(typing_type const& lhs, typing_type const& rhs) {
+    typing_type t;
+
+    t.mono_env = lhs.mono_env;
+    t.mono_env.insert(rhs.mono_env.begin(), rhs.mono_env.end());
+    t.type = ast.new_type_product(lhs.type, rhs.type);
+
+    return move(t);
+}
+
+typing_type type_inference::let(string const& name, typing_type const& rhs, typing_type const& body) {
+    typing_instantiate inst(ast);
+    typing_type b = inst(body);
+    typing_type t = b;
+
+    t.mono_env.erase(name);
+    mono_env_type::iterator f {b.mono_env.lower_bound(name)};
+    mono_env_type::iterator const l {b.mono_env.upper_bound(name)};
+
+    while (f != l) {
+        typing_instantiate inst(ast);
+        typing_type gen {inst(rhs)};
+        unify_types(gen.type, f->second);
+        t.mono_env.insert(gen.mono_env.begin(), gen.mono_env.end());
+        ++f;
+    }
+
+    return move(t);
+}
 
 //----------------------------------------------------------------------------
 // Explain Type Inference
@@ -1051,63 +966,61 @@ public:
 class explain: public term_visitor {
     term_show show_term;
     ostream &out;
+    int align;
 
 public:
     virtual void visit(term_literal *t) override {
-        out << "lit ---------------------------------------\n";
+        out << t->count << ". [lit] ";
         show_term(t);
-        out << "\n\n";
+        out << "\n";
     }
     
     virtual void visit(term_variable *t) override {
-        out << "var ---------------------------------------\n";
+        out << t->count << ". [var] ";
         show_term(t);
-        out << "\n\n";
+        out << "\n";
     }
 
     virtual void visit(term_abstraction *t) override {
         t->body->accept(this);
 
-        show_term(t->body);
-        out << "\nabs ---------------------------------------\n";
+        out << t->count << ". [abs " << t->name << " (" 
+            << t->body->count << ")] ";
         show_term(t);
-        out << "\n\n";
+        out << "\n";
     }
 
     virtual void visit(term_application *t) override {
         t->fun->accept(this);
         t->arg->accept(this);
 
-        show_term(t->fun);
-        out << "\n";
-        show_term(t->arg);
-        out << "\napp ---------------------------------------\n";
+        out << t->count << ". [app (" 
+            << t->fun->count << ") ("
+            << t->arg->count << ")] ";
         show_term(t);
-        out << "\n\n";
+        out << "\n";
     }
 
     virtual void visit(term_product *t) override {
         t->lhs->accept(this);
         t->rhs->accept(this);
 
-        show_term(t->lhs);
-        out << "\n";
-        show_term(t->rhs);
-        out << "\nprd ---------------------------------------\n";
+        out << t->count << ". [prd (" 
+            << t->lhs->count << ") (" 
+            << t->rhs->count << ")] ";
         show_term(t);
-        out << "\n\n";
+        out << "\n";
     }
 
     virtual void visit(term_let *t) override {
         t->rhs->accept(this);
         t->body->accept(this);
 
-        show_term(t->rhs);
-        out << "\n";
-        show_term(t->body);
-        out << "\nlet ---------------------------------------\n";
+        out << t->count << ". [let " << t->name << " ("
+            << t->rhs->count << ") ("
+            << t->body->count << ")] ";
         show_term(t);
-        out << "\n\n";
+        out << "\n";
     }
 
     explicit explain(ostream &out, bool debug = false) : show_term(out, debug), out(out) {}
@@ -1120,6 +1033,133 @@ public:
 };
 
 //----------------------------------------------------------------------------
+// Term Parser 
+
+struct return_app {
+    ast_factory& ast;
+    return_app(ast_factory &ast) : ast(ast) {}
+    void operator() (term_expression **res, term_expression* term) const {
+        if (*res == nullptr) {
+            *res = term;
+        } else {
+            *res = ast.new_term_application(*res, term);
+        }
+    }
+};
+
+struct return_prd {
+    ast_factory& ast;
+    return_prd(ast_factory &ast) : ast(ast) {}
+    void operator() (term_expression **res, term_expression* term) const {
+        if (*res == nullptr) {
+            *res = term;
+        } else {
+            *res = ast.new_term_product(*res, term);
+        }
+    }
+};
+
+struct return_abs {
+    ast_factory& ast;
+    return_abs(ast_factory &ast) : ast(ast) {}
+    void operator() (term_expression **res, string &name, term_expression *expr) const {
+        *res = ast.new_term_abstraction(name, expr);
+    }
+};
+
+struct return_let {
+    ast_factory& ast;
+    return_let(ast_factory &ast) : ast(ast) {}
+    void operator() (term_expression **res,
+        string const& name, term_expression *rhs, term_expression *body
+    ) const {
+        *res = ast.new_term_let(name, rhs, body);
+    }
+};
+
+struct return_var {
+    ast_factory& ast;
+    return_var(ast_factory &ast) : ast(ast) {}
+    void operator() (term_expression **res, string &name) const {
+        *res = ast.new_term_variable(name);
+    }
+};
+
+struct return_num {
+    ast_factory& ast;
+    return_num(ast_factory &ast) : ast(ast) {}
+    void operator() (term_expression **res, string &num) const {
+        *res = ast.new_term_literal(stoi(num));
+    }
+};
+
+auto const num_tok = name("number", tokenise(some(accept(is_digit))));
+auto const name_tok = except("let", except("in"
+    , name("name", tokenise(some(accept(is_alpha)) && many(accept(is_alnum))))));
+auto const abs_tok =  tokenise(accept(is_char('\\')));
+auto const dot_tok =  tokenise(accept(is_char('.')));
+auto const start_tok = tokenise(accept(is_char('(')));
+auto const end_tok = tokenise(accept(is_char(')')));
+auto const let_tok = tokenise(accept_str("let"));
+auto const ass_tok = tokenise(accept(is_char('=')));
+auto const in_tok = tokenise(accept_str("in"));
+auto const prod_tok = tokenise(accept(is_char(',')));
+auto const eof_tok = name("end-of-file", tokenise(accept(is_char(EOF))));
+    
+parser_handle<term_expression*> parse_exp(return_app &app, return_abs &abs,
+    return_let &let, return_var &var, return_num &num,
+    parser_handle<term_expression*> expr
+) {
+    return log("sub", discard(attempt(start_tok))
+            && strict("error parsing subexpression"
+            , expr && discard(end_tok)))
+        || log("abs", discard(attempt(abs_tok))
+            && strict("error parsing abstraction"
+            , all(abs, name_tok, discard(dot_tok) && expr)))
+        || log("let", discard(attempt(let_tok))
+            && strict("error parsing let"
+            , all(let, name_tok, discard(ass_tok) && expr, discard(in_tok) && expr)))
+        || log("var", all(var, attempt(name_tok)))
+        || log("num", all(num, attempt(num_tok)));
+}
+
+class term_parser {
+    pstream in;
+    return_app app;
+    return_prd prd;
+    return_abs abs;
+    return_let let;
+    return_var var;
+    return_num num;
+
+public:
+    term_parser(ast_factory &ast, istream &fs)
+        : in(fs), app(ast), prd(ast), abs(ast), let(ast), var(ast), num(ast) {}
+
+    term_expression* operator() () {
+        parser_handle<term_expression*> const expr =
+            strict("error parsing expression",
+                all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))
+            && many(
+                (discard(attempt(prod_tok)) && strict("error parsing expression", log("prd",
+                    all(prd, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))))
+                || log("app",
+                    all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))
+            );
+
+        auto const parser = expr && strict("unexpected trailing characters", attempt(discard(eof_tok)) || expr);
+
+        decltype(parser)::result_type res {};
+
+        if (!parser(in, &res)) {
+            throw runtime_error("parser failed without generating an error message.");
+        }
+
+        return res;
+    }
+};
+        
+//----------------------------------------------------------------------------
 
 int main(int argc, char const *const *argv) {
     if (argc < 1) {
@@ -1127,10 +1167,7 @@ int main(int argc, char const *const *argv) {
     } else {
         for (int i(1); i < argc; ++i) {
                 ast_factory ast;
-                type_inference_c infer_types(ast);
-
-                infer_types.tycons["true"] = infer_types.literal_bool;
-                infer_types.tycons["false"] = infer_types.literal_bool;
+                //type_inference_c infer_types(ast);
 
                 //type_expression *const n = infer_types.literal_int;
                 //infer_types.poly_env["inc_int"] = make_pair(m, ast.new_type_application(n, n));
@@ -1144,9 +1181,11 @@ int main(int argc, char const *const *argv) {
                         term_parser parse(ast, in);
                         term_expression *exp(parse());
                         in.close();
+                        (explain(cout))(exp);
+
+                        /*
                         show_term(exp);
                         cout << "\n";
-
                         try {
                             infer_types(exp);
                             (explain(cout))(exp);
@@ -1160,6 +1199,7 @@ int main(int argc, char const *const *argv) {
                             show_type(e.err.t2);
                             cout << "\n";
                         }
+                        */
                 }
         }
         
