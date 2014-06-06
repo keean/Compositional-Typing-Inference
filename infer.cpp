@@ -476,23 +476,26 @@ ostream& operator<< (ostream &out, term_expression* t) {
 //----------------------------------------------------------------------------
 // Type Graph Unification
 
-struct unification_error : public runtime_error {
-    type_expression *t1, *t2;
-    unification_error(type_expression *t1, type_expression *t2)
-        : runtime_error("error unifying"), t1(t1), t2(t2) {}
+class unification_error : public runtime_error {
 
-    virtual const char* what() const noexcept override {
+    static string const make_what(type_expression *const t1, type_expression *const t2) {
         stringstream err;
         type_show show_type(err);
 
-        err << runtime_error::what() << ": ";
+        err << "error unifying: ";
         show_type(t1);
         err << " ";
         show_type(t2);
         err << "\n";
 
-        return err.str().c_str();
+        return err.str();
     }
+
+public:
+    type_expression *const t1, *const t2;
+
+    unification_error(type_expression *const t1, type_expression *const t2)
+        : runtime_error(make_what(t1, t2)), t1(t1), t2(t2) {}
 };
 
 class type_unify : public type_visitor {
