@@ -973,13 +973,13 @@ class explain: public term_visitor {
 
 public:
     virtual void visit(term_literal *t) override {
-        out << t->count << ". [lit] ";
+        out << t->count << ". [lit]\t\t";
         show_term(t);
         out << "\n";
     }
     
     virtual void visit(term_variable *t) override {
-        out << t->count << ". [var] ";
+        out << t->count << ". [var]\t\t";
         show_term(t);
         out << "\n";
     }
@@ -988,7 +988,7 @@ public:
         t->body->accept(this);
 
         out << t->count << ". [abs " << t->name << " (" 
-            << t->body->count << ")] ";
+            << t->body->count << ")]\t\t";
         show_term(t);
         out << "\n";
     }
@@ -999,7 +999,7 @@ public:
 
         out << t->count << ". [app (" 
             << t->fun->count << ") ("
-            << t->arg->count << ")] ";
+            << t->arg->count << ")]\t";
         show_term(t);
         out << "\n";
     }
@@ -1010,7 +1010,7 @@ public:
 
         out << t->count << ". [prd (" 
             << t->lhs->count << ") (" 
-            << t->rhs->count << ")] ";
+            << t->rhs->count << ")]\t";
         show_term(t);
         out << "\n";
     }
@@ -1021,7 +1021,7 @@ public:
 
         out << t->count << ". [let " << t->name << " ("
             << t->rhs->count << ") ("
-            << t->body->count << ")] ";
+            << t->body->count << ")]\t";
         show_term(t);
         out << "\n";
     }
