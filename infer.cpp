@@ -121,93 +121,6 @@ void type_variable::accept(class type_visitor *v) {v->visit(this);}
 void type_application::accept(class type_visitor *v) {v->visit(this);}
 void type_product::accept(class type_visitor *v) {v->visit(this);}
 
-//----------------------------------------------------------------------------
-// Show Type Graph
-
-class type_show : public type_visitor {
-    using var_map_type = map<int, int>;
-
-    set<type_expression*> visited;
-    var_map_type tvar_map;
-
-    bool debug;
-    int vid;
-    ostream &out;
-
-    int type_id(var_map_type &vs, int &v, type_variable const *const t) {
-        auto const i = vs.find(t->id);
-        if (i == vs.end()) {
-            vs[t->id] = v;
-            return v++;
-        } else {
-            return i->second;
-        }
-    }
-
-public:
-    virtual void visit(type_literal *t) override {
-        out << t->name;
-    }
-
-    virtual void visit(type_variable *t) override {
-        static const string vs {"abcdefghijklmnopqrstuvwxyz"};
-        int x {type_id(tvar_map, vid, t)};
-        string s {};
-        do {
-            s.push_back(vs[x % 26]);
-            x = x / 26;
-        } while (x > 0);
-        reverse(s.begin(), s.end());
-        out << s;
-    }
-
-    virtual void visit(type_application *t) override {
-        if (visited.count(t) == 0) {
-            visited.insert(t);
-            out << "(";
-            find(t->dom)->accept(this);
-        out << " -> ";
-            find(t->cod)->accept(this);
-            out << ")";
-            visited.erase(t);
-        } else {
-            out << "...";
-        }
-    }
-
-    virtual void visit(type_product *t) override {
-        if (visited.count(t) == 0) {
-            visited.insert(t);
-            out << "(";
-            find(t->left)->accept(this);
-            out << " * ";
-            find(t->right)->accept(this);
-            out << ")";
-            visited.erase(t);
-        } else {
-            out << "...";
-        }
-    }
-
-    explicit type_show(ostream &out, bool debug = false) : debug(debug), vid(0), out(out) {}
-
-    void operator() (type_expression *t) {
-        if (t != nullptr) {
-            visited.clear();
-            find(t)->accept(this);
-        }
-    }
-
-    void reset() {
-        visited.clear();
-        tvar_map.clear();
-        vid = 0;
-    }
-};
-    
-//----------------------------------------------------------------------------
-// Term Expression AST
-
 using mono_env_type = multimap<string, type_expression*>;
 
 struct typing_type {
@@ -238,6 +151,166 @@ struct modular_type {
     type_expression* type;
 };
 */
+
+//----------------------------------------------------------------------------
+// Show Type Graph
+
+class mu_convert : public type_visitor {
+    using mu_type = map<type_expression*, int>;
+    set<type_expression*> visited;
+    mu_type &mu;
+    int &mid;
+
+public:
+    virtual void visit(type_literal *t) override {}
+    
+    virtual void visit(type_variable *t) override {}
+
+    virtual void visit(type_application *t) override {
+        if (visited.insert(t).second) {
+            find(t->dom)->accept(this);
+            find(t->cod)->accept(this);
+            visited.erase(t);
+        } else if (mu.find(t) == mu.end()) {
+            mu.insert(make_pair(t, mid++));
+        }
+    }
+
+    virtual void visit(type_product *t) override {
+        if (visited.insert(t).second) {
+            find(t->left)->accept(this);
+            find(t->right)->accept(this);
+            visited.erase(t);
+        } else if (mu.find(t) == mu.end()) {
+            mu.insert(make_pair(t, mid++));
+        }
+    }
+
+    mu_convert(set<type_expression*> const& v, mu_type &mu, int &mid) : visited(v), mu(mu), mid(mid) {}
+
+    void operator() (type_expression *t) {
+        find(t)->accept(this);
+    }
+};
+
+class type_show : public type_visitor {
+    using var_map_type = map<int, int>;
+    var_map_type tvar_map;
+    int vid;
+
+    using mu_type = map<type_expression*, int>;
+    mu_type mu;
+
+    set<type_expression*> visited;
+    bool debug;
+    ostream &out;
+
+    string id_to_name(int x) {
+        static const string vs {"abcdefghijklmnopqrstuvwxyz"};
+        string s {};
+        do {
+            s.push_back(vs[x % 26]);
+            x = x / 26;
+        } while (x > 0);
+        reverse(s.begin(), s.end());
+        return s;
+    }
+
+public:
+    virtual void visit(type_literal *t) override {
+        out << t->name;
+    }
+
+    virtual void visit(type_variable *t) override {
+        var_map_type::iterator i = tvar_map.find(t->id);
+        if (i == tvar_map.end()) {
+            out << id_to_name(vid);
+            tvar_map.insert(make_pair(t->id, vid++));
+        } else {
+            out << id_to_name(i->second);
+        }
+    }
+
+    virtual void visit(type_application *t) override {
+        mu_type::iterator i = mu.find(t);
+        // if there is a cycle, use the short name unless this is the first visit.
+        if (i == mu.end() || visited.insert(t).second) { 
+            out << "(";
+            find(t->dom)->accept(this);
+            out << " -> ";
+            find(t->cod)->accept(this);
+            if (i != mu.end()) {
+                out << " as " << id_to_name(i->second);
+            }
+            out << ")";
+            //visited.erase(t); // we should use the more compact names for cycles.
+        } else {
+            out << id_to_name(i->second);
+        }
+    }
+
+    virtual void visit(type_product *t) override {
+        mu_type::iterator i = mu.find(t);
+        if (i == mu.end() || visited.insert(t).second) {
+            out << "(";
+            find(t->left)->accept(this);
+            out << " * ";
+            find(t->right)->accept(this);
+            if (i != mu.end()) {
+                out << " as " << id_to_name(i->second);
+            }
+            out << ")";
+            //visited.erase(t);
+        } else {
+            out << id_to_name(i->second);
+        }
+    }
+
+    explicit type_show(ostream &out, bool debug = false) : debug(debug), vid(0), out(out) {}
+
+    void operator() (type_expression *t) {
+        if (t != nullptr) {
+            (mu_convert(visited, mu, vid))(t);
+            find(t)->accept(this);
+        }
+    }
+
+    void reset() {
+        mu.clear();
+        visited.clear();
+        tvar_map.clear();
+        vid = 0;
+    }
+};
+
+ostream& operator<< (ostream &out, typing_type const& t) {
+    type_show ts(out);
+    
+    out << "{";
+    if (!(t.mono_env.empty())) {
+        auto const f(t.mono_env.begin());
+        auto const l(t.mono_env.end());
+        for (auto i(f); i != l; ++i) {
+            out << i->first << " : ";
+            ts(i->second);
+            auto j(i);
+            if (++j != l) {
+                out << ", ";
+            }
+        }
+    }
+    out << "} ";
+
+    if (t.type != nullptr) {
+        out << "|- ";
+        ts(t.type);
+    }
+
+    return out;
+};
+    
+//----------------------------------------------------------------------------
+// Term Expression AST
 
 struct term_expression : public ast {
     static int next_count;
@@ -356,64 +429,7 @@ void term_product::accept(class term_visitor *v) {v->visit(this);}
 // Show Term Tree
 
 class term_show : public term_visitor {
-    type_show show_type;
     ostream &out;
-
-    void term_show_type(type_expression *t) {
-        if (t != nullptr) {
-            show_type(t);
-        }
-    }
-
-    void show_mono_env(mono_env_type &m) {
-        if (!(m.empty())) {
-            mono_env_type::iterator const f(m.begin());
-            mono_env_type::iterator const l(m.end());
-            out << "{";
-            for (mono_env_type::iterator i(f); i != l; ++i) {
-                out << i->first << " : ";
-                show_type(i->second);
-                mono_env_type::iterator j(i);
-                if (++j != l) {
-                    out << ", ";
-                }
-            }
-            out << "} "; 
-        }
-    }
-
-    void show_typing(typing_type &t) {
-        show_mono_env(t.mono_env);
-        out << "|- ";
-        term_show_type(t.type);
-    }
-
-/*
-    void show_poly_env(poly_env_type &p) {
-        if (!(p.empty())) {
-            poly_env_type::iterator const f(m.begin());
-            poly_env_type::iterator const l(m.end());
-            out << "<";
-            for (poly_env_type::iterator i(f); i != l; ++i) {
-                out << i->first << " : ";
-                show_typing(i->second);
-                poly_env_type::iterator j(i);
-                if (++j != l) {
-                    out << ", ";
-                }
-            }
-            out << "> ";
-        }
-    }
-
-    void show_mod_type(mod_type &s) {
-        show_poly_env(s.poly_env);
-        out << " ";
-        show_mono_env(s.mono_env);
-        out << " |- ";
-        term_show_type(s.type);
-    }
-*/
 
 public:
     virtual void visit(term_literal *t) override {
@@ -454,22 +470,17 @@ public:
         out << ")";
     }
 
-    explicit term_show(ostream &out, bool debug = false) : show_type(out, debug), out(out) {}
+    explicit term_show(ostream &out, bool debug = false) : out(out) {}
 
     void operator() (term_expression *t) {
         if (t != nullptr) {
             t->accept(this);
-            out << " : ";
-            show_type.reset();
-            //show_mod_type(t->mod_type);
-            show_typing(t->typing);
         }
     }
 };
 
 ostream& operator<< (ostream &out, term_expression* t) {
-    term_show show_term(out);
-    show_term(t);
+    (term_show(out)) (t);
     return out;
 }
   
@@ -661,7 +672,6 @@ public:
     }
         
     void operator() (type_expression *t1, type_expression *t2) {
-        profile<type_unify> p;
         done.clear();
         unify(t1, t2);
     }
@@ -955,8 +965,8 @@ typing_type type_inference::let(string const& name, typing_type const& rhs, typi
     while (f != l) {
         typing_instantiate inst(ast);
         typing_type gen {inst(rhs)};
-        unify_types(gen.type, f->second);
         t.mono_env.insert(gen.mono_env.begin(), gen.mono_env.end());
+        unify_types(gen.type, f->second);
         ++f;
     }
 
@@ -966,70 +976,194 @@ typing_type type_inference::let(string const& name, typing_type const& rhs, typi
 //----------------------------------------------------------------------------
 // Explain Type Inference
 
-class explain: public term_visitor {
-    term_show show_term;
-    ostream &out;
-    int align;
+string itos(int const i) {
+    stringstream s;
+    s << i;
+    return move(s.str());
+}
 
+class calc_indent : public term_visitor {
+    int nodes;
+    size_t nmlen;
+    
 public:
     virtual void visit(term_literal *t) override {
-        out << t->count << ". [lit]\t\t";
-        show_term(t);
-        out << "\n";
+        nmlen = max(nmlen, itos(t->value).size());
+        ++nodes;
     }
-    
+
     virtual void visit(term_variable *t) override {
-        out << t->count << ". [var]\t\t";
-        show_term(t);
-        out << "\n";
+        nmlen = max(nmlen, t->name.size());
+        ++nodes;
     }
 
     virtual void visit(term_abstraction *t) override {
+        nmlen = max(nmlen, t->name.size());
         t->body->accept(this);
-
-        out << t->count << ". [abs " << t->name << " (" 
-            << t->body->count << ")]\t\t";
-        show_term(t);
-        out << "\n";
+        ++nodes;
     }
 
     virtual void visit(term_application *t) override {
         t->fun->accept(this);
         t->arg->accept(this);
-
-        out << t->count << ". [app (" 
-            << t->fun->count << ") ("
-            << t->arg->count << ")]\t";
-        show_term(t);
-        out << "\n";
+        ++nodes;
     }
 
     virtual void visit(term_product *t) override {
         t->lhs->accept(this);
         t->rhs->accept(this);
-
-        out << t->count << ". [prd (" 
-            << t->lhs->count << ") (" 
-            << t->rhs->count << ")]\t";
-        show_term(t);
-        out << "\n";
+        ++nodes;
     }
-
+        
     virtual void visit(term_let *t) override {
         t->rhs->accept(this);
         t->body->accept(this);
-
-        out << t->count << ". [let " << t->name << " ("
-            << t->rhs->count << ") ("
-            << t->body->count << ")]\t";
-        show_term(t);
-        out << "\n";
+        nmlen = max(nmlen, t->name.size());
+        ++nodes;
     }
 
-    explicit explain(ostream &out, bool debug = false) : show_term(out, debug), out(out) {}
+    void operator() (term_expression *t, int &p1, int &p2) {
+        nodes = 0;
+        nmlen = 0;
+        t->accept(this);
+        p1 = itos(nodes).size();
+        p2 = nmlen + 2 * p1;
+    }
+};
+
+class explain: public term_visitor {
+    ostream &out;
+    int p1_count;
+    int p2_count;
+    set<term_expression*> visited;
+    bool debug;
+
+public:
+    virtual void visit(term_literal *t) override {
+        string const s_count = itos(t->count);
+        string const s_value = itos(t->value);
+        string const pad1(p1_count - s_count.size(), ' ');
+        string const pad2(p2_count - s_value.size(), ' ');
+
+        out << s_count << "." << pad1
+            << "[lit " << s_value << "]" << pad2;
+        if (debug) {
+            out << t << " : ";
+        }
+        out << t->typing << "\n";
+    }
+    
+    virtual void visit(term_variable *t) override {
+        string const s_count = itos(t->count);
+        string const pad1(p1_count - s_count.size(), ' ');
+        string const pad2(p2_count - t->name.size(), ' ');
+
+        out << s_count << "." << pad1
+            << "[var " << t->name << "]" << pad2;
+        if (debug) {
+            out << t << " : ";
+        }
+        out << t->typing << "\n";
+    }
+
+    virtual void visit(term_abstraction *t) override {
+        if (visited.insert(t).second) {
+            t->body->accept(this);
+
+            string const s_count = itos(t->count);
+            string const s_body = itos(t->body->count);
+            string const pad1(p1_count - s_count.size(), ' ');
+            string const pad2(p2_count - 3 - t->name.size()
+                - s_body.size(), ' ');
+
+            out << s_count << "." << pad1
+                << "[abs " << t->name << " (" << s_body << ")]" << pad2;
+            if (debug) {
+                out << t << " : ";
+            }
+            out << t->typing << "\n";
+        } else {
+            out << ":\n";
+        }
+    }
+
+    virtual void visit(term_application *t) override {
+        if (visited.insert(t).second) {
+            t->fun->accept(this);
+            t->arg->accept(this);
+
+            string const s_count = itos(t->count);
+            string const s_fun = itos(t->fun->count);
+            string const s_arg = itos(t->arg->count);
+            string const pad1(p1_count - s_count.size(), ' ');
+            string const pad2(p2_count - 5 - s_fun.size()
+                - s_arg.size(), ' ');
+
+            out << s_count << "." << pad1
+                << "[app (" << s_fun << ") (" << s_arg << ")]" << pad2;
+            if (debug) {
+                out << t << " : ";
+            }
+            out << t->typing << "\n";
+        } else {
+            out << ":\n";
+        }
+    }
+
+    virtual void visit(term_product *t) override {
+        if (visited.insert(t).second) {
+            t->lhs->accept(this);
+            t->rhs->accept(this);
+
+            string const s_count = itos(t->count);
+            string const s_lhs = itos(t->lhs->count);
+            string const s_rhs = itos(t->rhs->count);
+            string const pad1(p1_count - s_count.size(), ' ');
+            string const pad2(p2_count - 5 - s_lhs.size()
+                - s_rhs.size(), ' ');
+
+            out << s_count << "." << pad1
+                << "[prd (" << s_lhs << ") (" << s_rhs << ")]" << pad2;
+            if (debug) {
+                out << t << " : ";
+            }
+            out << t->typing << "\n";
+        } else {
+            out << ":\n";
+        }
+    }
+
+    virtual void visit(term_let *t) override {
+        if (visited.insert(t).second) {
+            t->rhs->accept(this);
+            t->body->accept(this);
+
+            string const s_count = itos(t->count);
+            string const s_rhs = itos(t->rhs->count);
+            string const s_body = itos(t->body->count);
+            string const pad1(p1_count - s_count.size(), ' ');
+            string const pad2(p2_count - 6 - t->name.size()
+                - s_rhs.size() - s_body.size(), ' ');
+
+            out << s_count << "." << pad1
+                << "[let " << t->name << " (" << s_rhs << ") (" << s_body << ")]" << pad2;
+            if (debug) {
+                out << t << " : ";
+            }
+            out << t->typing << "\n";
+        } else {
+            out << ":\n";
+        }
+    }
+
+    explicit explain(ostream &out, bool debug = false) : out(out), debug(debug) {}
 
     void operator() (term_expression *t) {
         if (t != nullptr) {
+            visited.clear();
+            calc_indent {} (t, p1_count, p2_count);
+            p1_count += 1;
+            p2_count += 8;
             t->accept(this);
         }
     }
@@ -1140,15 +1274,12 @@ public:
         : in(fs), app(ast), prd(ast), abs(ast), let(ast), var(ast), num(ast) {}
 
     term_expression* operator() () {
-        parser_handle<term_expression*> const expr =
-            strict("error parsing expression",
-                all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))
-            && many(
-                (discard(attempt(prod_tok)) && strict("error parsing expression", log("prd",
-                    all(prd, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))))
-                || log("app",
-                    all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr))))
-            );
+        parser_handle<term_expression*> const expr = 
+            all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr)))
+            && many(log("app",
+            all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr)))))
+            && many(log("prd", discard(attempt(prod_tok)) &&
+            all(prd, reference("{expression}-", expr))));
 
         auto const parser = expr && strict("unexpected trailing characters", attempt(discard(eof_tok)) || expr);
 
@@ -1181,10 +1312,14 @@ int main(int argc, char const *const *argv) {
 
                 fstream in(argv[i], ios_base::in);
                 if (in.is_open()) {
+                        profile<type_unify> p;
                         term_parser parse(ast, in);
                         term_expression *exp(parse());
+                        cout << "Done.\n";
                         in.close();
-                        (explain(cout))(exp);
+
+                        //cout << exp->typing << "\n";
+                        (explain(cout, true))(exp);
 
                         /*
                         show_term(exp);
@@ -1206,6 +1341,6 @@ int main(int argc, char const *const *argv) {
                 }
         }
         
-        cout << "profile: " << setprecision(16) << profile<type_unify>::report() << "\n";
+        cout << "profile: " << setprecision(16) << profile<type_unify>::report() << "us\n";
     }
 }
