@@ -1103,7 +1103,7 @@ public:
         string const pad1(p1_count - s_count.size(), ' ');
         string const pad2(p2_count - s_value.size(), ' ');
 
-        out << s_count << "." << pad1
+        out << "// " << s_count << "." << pad1
             << "[lit " << s_value << "]" << pad2;
         if (debug) {
             out << t << " : ";
@@ -1116,7 +1116,7 @@ public:
         string const pad1(p1_count - s_count.size(), ' ');
         string const pad2(p2_count - t->name.size(), ' ');
 
-        out << s_count << "." << pad1
+        out << "// " << s_count << "." << pad1
             << "[var " << t->name << "]" << pad2;
         if (debug) {
             out << t << " : ";
@@ -1134,7 +1134,7 @@ public:
             string const pad2(p2_count - 3 - t->name.size()
                 - s_body.size(), ' ');
 
-            out << s_count << "." << pad1
+            out << "// " << s_count << "." << pad1
                 << "[abs " << t->name << " (" << s_body << ")]" << pad2;
             if (debug) {
                 out << t << " : ";
@@ -1157,7 +1157,7 @@ public:
             string const pad2(p2_count - 5 - s_fun.size()
                 - s_arg.size(), ' ');
 
-            out << s_count << "." << pad1
+            out << "// " << s_count << "." << pad1
                 << "[app (" << s_fun << ") (" << s_arg << ")]" << pad2;
             if (debug) {
                 out << t << " : ";
@@ -1180,7 +1180,7 @@ public:
             string const pad2(p2_count - 5 - s_lhs.size()
                 - s_rhs.size(), ' ');
 
-            out << s_count << "." << pad1
+            out << "// " << s_count << "." << pad1
                 << "[prd (" << s_lhs << ") (" << s_rhs << ")]" << pad2;
             if (debug) {
                 out << t << " : ";
@@ -1203,7 +1203,7 @@ public:
             string const pad2(p2_count - 6 - t->name.size()
                 - s_rhs.size() - s_body.size(), ' ');
 
-            out << s_count << "." << pad1
+            out << "// " << s_count << "." << pad1
                 << "[let " << t->name << " (" << s_rhs << ") (" << s_body << ")]" << pad2;
             if (debug) {
                 out << t << " : ";
@@ -1375,8 +1375,8 @@ int main(int argc, char const *const *argv) {
                         term_expression *exp(parse());
                         in.close();
 
-                        //(explain(cout, true))(exp);
-                        //cout << "\n";
+                        (explain(cout, true))(exp);
+                        cout << "\n";
                         (dump_graph(cout))(exp->typing.type);
 
                         /*
