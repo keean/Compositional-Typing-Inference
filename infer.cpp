@@ -155,6 +155,73 @@ struct modular_type {
 //----------------------------------------------------------------------------
 // Show Type Graph
 
+class dump_graph : public type_visitor {
+    ostream &out;
+
+    using node_map_type = map<type_expression*, string>;
+    node_map_type node_map;
+    int node;
+
+public:
+    virtual void visit(type_literal *t) override {
+        node_map_type::iterator i = node_map.insert(make_pair(t, t->name)).first;
+
+        out << "\t" << i->second << ";\n";
+    }
+    
+    virtual void visit(type_variable *t) override {
+        stringstream s;
+        s << "var" << t->id;
+        node_map_type::iterator i = node_map.insert(make_pair(t, s.str())).first;
+
+        out << "\t" << i->second << ";\n";
+    }
+
+    virtual void visit(type_application *t) override {
+        node_map_type::iterator i = node_map.find(t);
+        if (i == node_map.end()) {
+            stringstream s;
+            s << "arrow" << node++;
+            i =  node_map.insert(make_pair(t, s.str())).first;
+
+            out << "\t" << i->second << ";\n";
+
+            find(t->dom)->accept(this);
+            find(t->cod)->accept(this);
+
+            out << "\t" << i->second << " -> " << node_map[find(t->dom)] << " [color=red];\n";
+            out << "\t" << i->second << " -> " << node_map[find(t->cod)] << " [color=green];\n";
+        } 
+    }
+
+    virtual void visit(type_product *t) override {
+        node_map_type::iterator i = node_map.find(t);
+        if (i == node_map.end()) {
+            stringstream s;
+            s << "pair" << node++;
+            i =  node_map.insert(make_pair(t, s.str())).first;
+
+            out << "\t" << i->second << ";\n";
+
+            find(t->left)->accept(this);
+            find(t->right)->accept(this);
+
+            out << "\t" << i->second << " -> " << node_map[find(t->left)] << " [color=red];\n";
+            out << "\t" << i->second << " -> " << node_map[find(t->right)] << " [color=green];\n";
+        }
+    }
+
+    dump_graph(ostream &out) : out(out), node(0) {}
+
+    void operator() (type_expression *t) {
+        out << "digraph type {\n";
+        find(t)->accept(this);
+        out << "}\n";
+    }
+};
+
+//----------------------------------------------------------------------------
+
 class mu_convert : public type_visitor {
     using mu_type = map<type_expression*, int>;
     set<type_expression*> visited;
@@ -233,7 +300,6 @@ public:
 
     virtual void visit(type_application *t) override {
         mu_type::iterator i = mu.find(t);
-        // if there is a cycle, use the short name unless this is the first visit.
         if (i == mu.end() || visited.insert(t).second) { 
             out << "(";
             find(t->dom)->accept(this);
@@ -243,7 +309,6 @@ public:
                 out << " as " << id_to_name(i->second);
             }
             out << ")";
-            //visited.erase(t); // we should use the more compact names for cycles.
         } else {
             out << id_to_name(i->second);
         }
@@ -260,7 +325,6 @@ public:
                 out << " as " << id_to_name(i->second);
             }
             out << ")";
-            //visited.erase(t);
         } else {
             out << id_to_name(i->second);
         }
@@ -599,6 +663,7 @@ public:
             unify.mark_done(t1, t2);
             unify.queue(t1->dom, t2->dom);
             unify.queue(t1->cod, t2->cod);
+            link(t1, t2);
         }
         virtual void visit(type_product *t2) override {
             throw unification_error(t1, t2);
@@ -917,10 +982,8 @@ typing_type type_inference::abs(string const& name, typing_type const& body) {
     mono_env_type::iterator const l {t.mono_env.upper_bound(name)};
     type_expression *a = ast.new_type_variable();
 
-    if (f != l) {
-        while (f != l) {
-            unify_types(a, (f++)->second);
-        }
+    while (f != l) {
+        unify_types(a, (f++)->second);
     }
 
     t.mono_env.erase(name);
@@ -1315,11 +1378,11 @@ int main(int argc, char const *const *argv) {
                         profile<type_unify> p;
                         term_parser parse(ast, in);
                         term_expression *exp(parse());
-                        cout << "Done.\n";
                         in.close();
 
-                        //cout << exp->typing << "\n";
                         (explain(cout, true))(exp);
+                        cout << "\n";
+                        //(dump_graph(cout))(exp->typing.type);
 
                         /*
                         show_term(exp);
@@ -1341,6 +1404,6 @@ int main(int argc, char const *const *argv) {
                 }
         }
         
-        cout << "profile: " << setprecision(16) << profile<type_unify>::report() << "us\n";
+        //cout << "profile: " << setprecision(16) << profile<type_unify>::report() << "us\n";
     }
 }
