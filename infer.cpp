@@ -189,8 +189,8 @@ public:
             find(t->dom)->accept(this);
             find(t->cod)->accept(this);
 
-            out << "\t" << i->second << " -> " << node_map[find(t->dom)] << " [color=red];\n";
-            out << "\t" << i->second << " -> " << node_map[find(t->cod)] << " [color=green];\n";
+            out << "\t" << i->second << " -> " << node_map[find(t->dom)] << " [color=green];\n";
+            out << "\t" << i->second << " -> " << node_map[find(t->cod)] << " [color=red];\n";
         } 
     }
 
@@ -206,8 +206,8 @@ public:
             find(t->left)->accept(this);
             find(t->right)->accept(this);
 
-            out << "\t" << i->second << " -> " << node_map[find(t->left)] << " [color=red];\n";
-            out << "\t" << i->second << " -> " << node_map[find(t->right)] << " [color=green];\n";
+            out << "\t" << i->second << " -> " << node_map[find(t->left)] << " [color=green];\n";
+            out << "\t" << i->second << " -> " << node_map[find(t->right)] << " [color=red];\n";
         }
     }
 
@@ -259,6 +259,8 @@ public:
         find(t)->accept(this);
     }
 };
+
+//----------------------------------------------------------------------------
 
 class type_show : public type_visitor {
     using var_map_type = map<int, int>;
@@ -578,13 +580,8 @@ class type_unify : public type_visitor {
     type_expression *u2;
     type_show *show_type;
 
-    set<texp_pair> done;
     vector<texp_pair> todo;
     
-    inline void mark_done(type_expression *t1, type_expression *t2) {
-        done.emplace(move(make_pair(t1, t2)));
-    }
-
     inline void queue(type_expression *t1, type_expression *t2) {
         if (t1 != t2) {
             todo.emplace_back(move(make_pair(t1, t2)));
@@ -597,7 +594,7 @@ public:
         type_literal *t1;
     public:
         virtual void visit(type_literal *t2) override {
-            unify.mark_done(t1, t2);
+            link(t1, t2);
             if (t1->name != t2->name) {
                 throw unification_error(t1, t2);
             }
@@ -660,10 +657,9 @@ public:
             t2->replace_with(t1);
         }
         virtual void visit(type_application *t2) override {
-            unify.mark_done(t1, t2);
+            link(t1, t2);
             unify.queue(t1->dom, t2->dom);
             unify.queue(t1->cod, t2->cod);
-            link(t1, t2);
         }
         virtual void visit(type_product *t2) override {
             throw unification_error(t1, t2);
@@ -689,7 +685,7 @@ public:
             throw unification_error(t1, t2);
         }
         virtual void visit(type_product *t2) override {
-            unify.mark_done(t1, t2);
+            link(t1, t2);
             unify.queue(t1->left, t2->left);
             unify.queue(t1->right, t2->right);
         }
@@ -730,14 +726,13 @@ public:
             todo.pop_back();
             type_expression *u1 = find(tt.first);
             u2 = find(tt.second);
-            if ((u1 != u2) && (done.count(move(make_pair(u1, u2))) == 0)) {
+            if (u1 != u2) {
                 u1->accept(this);
             }
         }
     }
         
     void operator() (type_expression *t1, type_expression *t2) {
-        done.clear();
         unify(t1, t2);
     }
 };
@@ -1380,9 +1375,9 @@ int main(int argc, char const *const *argv) {
                         term_expression *exp(parse());
                         in.close();
 
-                        (explain(cout, true))(exp);
-                        cout << "\n";
-                        //(dump_graph(cout))(exp->typing.type);
+                        //(explain(cout, true))(exp);
+                        //cout << "\n";
+                        (dump_graph(cout))(exp->typing.type);
 
                         /*
                         show_term(exp);
