@@ -1353,44 +1353,64 @@ public:
         
 //----------------------------------------------------------------------------
 
+enum class flag {
+    dot,
+    typ
+};
+
+using flag_set_type = set<enum flag>;
+
 int main(int argc, char const *const *argv) {
-    if (argc < 1) {
+    flag_set_type flag_set;
+    vector<string> files;
+
+    for (int i = 1; i < argc; ++i) {
+        string s = argv[i];
+        if (s == "--type-graph") {
+            flag_set.insert(flag::dot);
+        } else if (s == "--derivation") {
+            flag_set.insert(flag::typ);
+        }
+        files.push_back(move(s));
+    }
+
+    if (files.size() < 1) {
         printf("no input files.\n");
     } else {
-        for (int i(1); i < argc; ++i) {
-                ast_factory ast;
-                //type_inference_c infer_types(ast);
+        for (auto const &file : files) {
+            ast_factory ast;
+            //type_inference_c infer_types(ast);
 
-                //type_expression *const n = infer_types.literal_int;
-                //infer_types.poly_env["inc_int"] = make_pair(m, ast.new_type_application(n, n));
-                //infer_types.poly_env["add_int"] = make_pair(m, ast.new_type_application(
-                //    n, ast.new_type_application(n, n)));
+            //type_expression *const n = infer_types.literal_int;
+            //infer_types.poly_env["inc_int"] = make_pair(m, ast.new_type_application(n, n));
+            //infer_types.poly_env["add_int"] = make_pair(m, ast.new_type_application(
+            //    n, ast.new_type_application(n, n)));
 
-                term_show show_term(cout);
+            fstream in(file, ios_base::in);
+            if (in.is_open()) {
+                profile<type_unify> p;
+                term_parser parse(ast, in);
+                term_expression *exp(parse());
+                in.close();
 
-                fstream in(argv[i], ios_base::in);
-                if (in.is_open()) {
-                        profile<type_unify> p;
-                        term_parser parse(ast, in);
-                        term_expression *exp(parse());
-                        in.close();
-
-                        {
-                            stringstream s;
-                            s << argv[i] << ".typ";
-                            fstream typ(s.str(), ios_base::out);
-                            (explain(typ, true))(exp);
-                            typ.close();
-                        }
-
-                        {
-                            stringstream s;
-                            s << argv[i] << ".dot";
-                            fstream dot(s.str(), ios_base::out);
-                            (dump_graph(dot))(exp->typing.type);
-                            dot.close();
-                        }
+                if (flag_set.find(flag::typ) != flag_set.end()) {
+                    stringstream s;
+                    s << file << ".typ";
+                    fstream typ(s.str(), ios_base::out);
+                    (explain(typ, true))(exp);
+                    typ.close();
                 }
+
+                if (flag_set.find(flag::dot) != flag_set.end()) {
+                    stringstream s;
+                    s << file << ".dot";
+                    fstream dot(s.str(), ios_base::out);
+                    (dump_graph(dot))(exp->typing.type);
+                    dot.close();
+                }
+
+                cout << exp->typing << "\n";
+            }
         }
         
         //cout << "profile: " << setprecision(16) << profile<type_unify>::report() << "us\n";
