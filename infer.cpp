@@ -1370,8 +1370,9 @@ int main(int argc, char const *const *argv) {
             flag_set.insert(flag::dot);
         } else if (s == "--derivation") {
             flag_set.insert(flag::typ);
+        } else {
+            files.push_back(move(s));
         }
-        files.push_back(move(s));
     }
 
     if (files.size() < 1) {
