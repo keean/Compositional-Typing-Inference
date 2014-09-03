@@ -155,6 +155,73 @@ struct modular_type {
 //----------------------------------------------------------------------------
 // Show Type Graph
 
+class dump_graph : public type_visitor {
+    ostream &out;
+
+    using node_map_type = map<type_expression*, string>;
+    node_map_type node_map;
+    int node;
+
+public:
+    virtual void visit(type_literal *t) override {
+        node_map_type::iterator i = node_map.insert(make_pair(t, t->name)).first;
+
+        out << "\t" << i->second << ";\n";
+    }
+    
+    virtual void visit(type_variable *t) override {
+        stringstream s;
+        s << "var" << t->id;
+        node_map_type::iterator i = node_map.insert(make_pair(t, s.str())).first;
+
+        out << "\t" << i->second << ";\n";
+    }
+
+    virtual void visit(type_application *t) override {
+        node_map_type::iterator i = node_map.find(t);
+        if (i == node_map.end()) {
+            stringstream s;
+            s << "arrow" << node++;
+            i =  node_map.insert(make_pair(t, s.str())).first;
+
+            out << "\t" << i->second << ";\n";
+
+            find(t->dom)->accept(this);
+            find(t->cod)->accept(this);
+
+            out << "\t" << i->second << " -> " << node_map[find(t->dom)] << " [color=green];\n";
+            out << "\t" << i->second << " -> " << node_map[find(t->cod)] << " [color=red];\n";
+        } 
+    }
+
+    virtual void visit(type_product *t) override {
+        node_map_type::iterator i = node_map.find(t);
+        if (i == node_map.end()) {
+            stringstream s;
+            s << "pair" << node++;
+            i =  node_map.insert(make_pair(t, s.str())).first;
+
+            out << "\t" << i->second << ";\n";
+
+            find(t->left)->accept(this);
+            find(t->right)->accept(this);
+
+            out << "\t" << i->second << " -> " << node_map[find(t->left)] << " [color=green];\n";
+            out << "\t" << i->second << " -> " << node_map[find(t->right)] << " [color=red];\n";
+        }
+    }
+
+    dump_graph(ostream &out) : out(out), node(0) {}
+
+    void operator() (type_expression *t) {
+        out << "digraph type {\n";
+        find(t)->accept(this);
+        out << "}\n";
+    }
+};
+
+//----------------------------------------------------------------------------
+
 class mu_convert : public type_visitor {
     using mu_type = map<type_expression*, int>;
     set<type_expression*> visited;
@@ -192,6 +259,8 @@ public:
         find(t)->accept(this);
     }
 };
+
+//----------------------------------------------------------------------------
 
 class type_show : public type_visitor {
     using var_map_type = map<int, int>;
@@ -233,7 +302,6 @@ public:
 
     virtual void visit(type_application *t) override {
         mu_type::iterator i = mu.find(t);
-        // if there is a cycle, use the short name unless this is the first visit.
         if (i == mu.end() || visited.insert(t).second) { 
             out << "(";
             find(t->dom)->accept(this);
@@ -243,7 +311,6 @@ public:
                 out << " as " << id_to_name(i->second);
             }
             out << ")";
-            //visited.erase(t); // we should use the more compact names for cycles.
         } else {
             out << id_to_name(i->second);
         }
@@ -260,7 +327,6 @@ public:
                 out << " as " << id_to_name(i->second);
             }
             out << ")";
-            //visited.erase(t);
         } else {
             out << id_to_name(i->second);
         }
@@ -514,13 +580,8 @@ class type_unify : public type_visitor {
     type_expression *u2;
     type_show *show_type;
 
-    set<texp_pair> done;
     vector<texp_pair> todo;
     
-    inline void mark_done(type_expression *t1, type_expression *t2) {
-        done.emplace(move(make_pair(t1, t2)));
-    }
-
     inline void queue(type_expression *t1, type_expression *t2) {
         if (t1 != t2) {
             todo.emplace_back(move(make_pair(t1, t2)));
@@ -533,7 +594,7 @@ public:
         type_literal *t1;
     public:
         virtual void visit(type_literal *t2) override {
-            unify.mark_done(t1, t2);
+            link(t1, t2);
             if (t1->name != t2->name) {
                 throw unification_error(t1, t2);
             }
@@ -596,7 +657,7 @@ public:
             t2->replace_with(t1);
         }
         virtual void visit(type_application *t2) override {
-            unify.mark_done(t1, t2);
+            link(t1, t2);
             unify.queue(t1->dom, t2->dom);
             unify.queue(t1->cod, t2->cod);
         }
@@ -624,7 +685,7 @@ public:
             throw unification_error(t1, t2);
         }
         virtual void visit(type_product *t2) override {
-            unify.mark_done(t1, t2);
+            link(t1, t2);
             unify.queue(t1->left, t2->left);
             unify.queue(t1->right, t2->right);
         }
@@ -665,14 +726,13 @@ public:
             todo.pop_back();
             type_expression *u1 = find(tt.first);
             u2 = find(tt.second);
-            if ((u1 != u2) && (done.count(move(make_pair(u1, u2))) == 0)) {
+            if (u1 != u2) {
                 u1->accept(this);
             }
         }
     }
         
     void operator() (type_expression *t1, type_expression *t2) {
-        done.clear();
         unify(t1, t2);
     }
 };
@@ -1293,52 +1353,67 @@ public:
         
 //----------------------------------------------------------------------------
 
+enum class flag {
+    dot,
+    typ
+};
+
+using flag_set_type = set<enum flag>;
+
 int main(int argc, char const *const *argv) {
-    if (argc < 1) {
+    flag_set_type flag_set;
+    vector<string> files;
+
+    for (int i = 1; i < argc; ++i) {
+        string s = argv[i];
+        if (s == "--type-graph") {
+            flag_set.insert(flag::dot);
+        } else if (s == "--derivation") {
+            flag_set.insert(flag::typ);
+        } else {
+            files.push_back(move(s));
+        }
+    }
+
+    if (files.size() < 1) {
         printf("no input files.\n");
     } else {
-        for (int i(1); i < argc; ++i) {
-                ast_factory ast;
-                //type_inference_c infer_types(ast);
+        for (auto const &file : files) {
+            ast_factory ast;
+            //type_inference_c infer_types(ast);
 
-                //type_expression *const n = infer_types.literal_int;
-                //infer_types.poly_env["inc_int"] = make_pair(m, ast.new_type_application(n, n));
-                //infer_types.poly_env["add_int"] = make_pair(m, ast.new_type_application(
-                //    n, ast.new_type_application(n, n)));
+            //type_expression *const n = infer_types.literal_int;
+            //infer_types.poly_env["inc_int"] = make_pair(m, ast.new_type_application(n, n));
+            //infer_types.poly_env["add_int"] = make_pair(m, ast.new_type_application(
+            //    n, ast.new_type_application(n, n)));
 
-                term_show show_term(cout);
+            fstream in(file, ios_base::in);
+            if (in.is_open()) {
+                profile<type_unify> p;
+                term_parser parse(ast, in);
+                term_expression *exp(parse());
+                in.close();
 
-                fstream in(argv[i], ios_base::in);
-                if (in.is_open()) {
-                        profile<type_unify> p;
-                        term_parser parse(ast, in);
-                        term_expression *exp(parse());
-                        cout << "Done.\n";
-                        in.close();
-
-                        //cout << exp->typing << "\n";
-                        (explain(cout, true))(exp);
-
-                        /*
-                        show_term(exp);
-                        cout << "\n";
-                        try {
-                            infer_types(exp);
-                            (explain(cout))(exp);
-                        } catch (inference_error &e) {
-                            explain exp(cout, true);
-                            type_show show_type(cout, true);
-                            cout << e.what() << ":\n\n";
-                            exp(e.term);
-                            show_type(e.err.t1);
-                            cout << " != ";
-                            show_type(e.err.t2);
-                            cout << "\n";
-                        }
-                        */
+                if (flag_set.find(flag::typ) != flag_set.end()) {
+                    stringstream s;
+                    s << file << ".typ";
+                    fstream typ(s.str(), ios_base::out);
+                    (explain(typ, true))(exp);
+                    typ.close();
                 }
+
+                if (flag_set.find(flag::dot) != flag_set.end()) {
+                    stringstream s;
+                    s << file << ".dot";
+                    fstream dot(s.str(), ios_base::out);
+                    (dump_graph(dot))(exp->typing.type);
+                    dot.close();
+                }
+
+                cout << exp->typing << "\n";
+            }
         }
         
-        cout << "profile: " << setprecision(16) << profile<type_unify>::report() << "us\n";
+        //cout << "profile: " << setprecision(16) << profile<type_unify>::report() << "us\n";
     }
 }
