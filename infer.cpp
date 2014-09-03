@@ -917,10 +917,8 @@ typing_type type_inference::abs(string const& name, typing_type const& body) {
     mono_env_type::iterator const l {t.mono_env.upper_bound(name)};
     type_expression *a = ast.new_type_variable();
 
-    if (f != l) {
-        while (f != l) {
-            unify_types(a, (f++)->second);
-        }
+    while (f != l) {
+        unify_types(a, (f++)->second);
     }
 
     t.mono_env.erase(name);
