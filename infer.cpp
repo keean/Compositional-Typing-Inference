@@ -595,7 +595,6 @@ public:
         type_literal *t1;
     public:
         virtual void visit(type_literal *t2) override {
-            link(t1, t2);
             if (t1->name != t2->name) {
                 throw unification_error(t1, t2);
             }
@@ -609,6 +608,7 @@ public:
                     unify.queue(*(f1++), *(f2++));
                 }
             }
+            link(t1, t2);
         }
         virtual void visit(type_variable *t2) override {
             t2->replace_with(t1);
@@ -686,9 +686,9 @@ public:
             throw unification_error(t1, t2);
         }
         virtual void visit(type_product *t2) override {
-            link(t1, t2);
             unify.queue(t1->left, t2->left);
             unify.queue(t1->right, t2->right);
+            link(t1, t2);
         }
         explicit product_unify(type_unify &unify) : unify(unify) {}
         void operator() (type_product *a1, type_expression *a2) {
