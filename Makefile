@@ -1,7 +1,7 @@
 all: infer
 
 clean:
-	rm -r infer
+	rm -f infer
 
 infer: infer.cpp Parser-Combinators/parser_combinators.hpp
-	clang++ -ggdb -march=native -O3 -flto -std=gnu++11 -IParser-Combinators -o infer infer.cpp 
+	clang++ ${CFLAGS} -ggdb -march=native -O3 -flto -std=c++11 -o infer infer.cpp

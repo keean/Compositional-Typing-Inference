@@ -14,8 +14,9 @@
 #include <sstream>
 #include <algorithm>
 
-#include "profile.hpp"
-#include "parser_combinators.hpp"
+#include "Parser-Combinators/profile.hpp"
+#include "Parser-Combinators/stream_iterator.hpp"
+#include "Parser-Combinators/parser_combinators.hpp"
 
 using namespace std;
 
@@ -1301,9 +1302,9 @@ auto const in_tok = tokenise(accept_str("in"));
 auto const prod_tok = tokenise(accept(is_char(',')));
 auto const eof_tok = name("end-of-file", tokenise(accept(is_char(EOF))));
     
-parser_handle<term_expression*> parse_exp(return_app &app, return_abs &abs,
+pstream_handle<term_expression*> parse_exp(return_app &app, return_abs &abs,
     return_let &let, return_var &var, return_num &num,
-    parser_handle<term_expression*> expr
+    pstream_handle<term_expression*> expr
 ) {
     return log("sub", discard(attempt(start_tok))
             && strict("error parsing subexpression"
@@ -1319,7 +1320,6 @@ parser_handle<term_expression*> parse_exp(return_app &app, return_abs &abs,
 }
 
 class term_parser {
-    pstream in;
     return_app app;
     return_prd prd;
     return_abs abs;
@@ -1328,22 +1328,24 @@ class term_parser {
     return_num num;
 
 public:
-    term_parser(ast_factory &ast, istream &fs)
-        : in(fs), app(ast), prd(ast), abs(ast), let(ast), var(ast), num(ast) {}
+    term_parser(ast_factory &ast)
+        : app(ast), prd(ast), abs(ast), let(ast), var(ast), num(ast) {}
 
-    term_expression* operator() () {
-        parser_handle<term_expression*> const expr = 
+    template <typename Range>
+    term_expression* operator() (Range const& in) {
+        pstream_handle<term_expression*> const expr = 
             all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr)))
             && many(log("app",
             all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr)))))
             && many(log("prd", discard(attempt(prod_tok)) &&
             all(prd, reference("{expression}-", expr))));
 
-        auto const parser = expr && strict("unexpected trailing characters", attempt(discard(eof_tok)) || expr);
+        auto const parser = first_token && expr && strict("unexpected trailing characters", attempt(discard(eof_tok)) || expr);
 
         decltype(parser)::result_type res {};
+        typename Range::iterator i = in.first;
 
-        if (!parser(in, &res)) {
+        if (!parser(i, in, &res)) {
             throw runtime_error("parser failed without generating an error message.");
         }
 
@@ -1387,31 +1389,30 @@ int main(int argc, char const *const *argv) {
             //infer_types.poly_env["add_int"] = make_pair(m, ast.new_type_application(
             //    n, ast.new_type_application(n, n)));
 
-            fstream in(file, ios_base::in);
-            if (in.is_open()) {
+            //{   
+                stream_range in(file);
                 profile<type_unify> p;
-                term_parser parse(ast, in);
-                term_expression *exp(parse());
-                in.close();
+                term_parser parse(ast);
+                term_expression *exp(parse(in));
+            //}
 
-                if (flag_set.find(flag::typ) != flag_set.end()) {
-                    stringstream s;
-                    s << file << ".typ";
-                    fstream typ(s.str(), ios_base::out);
-                    (explain(typ, true))(exp);
-                    typ.close();
-                }
-
-                if (flag_set.find(flag::dot) != flag_set.end()) {
-                    stringstream s;
-                    s << file << ".dot";
-                    fstream dot(s.str(), ios_base::out);
-                    (dump_graph(dot))(exp->typing.type);
-                    dot.close();
-                }
-
-                cout << exp->typing << "\n";
+            if (flag_set.find(flag::typ) != flag_set.end()) {
+                stringstream s;
+                s << file << ".typ";
+                fstream typ(s.str(), ios_base::out);
+                (explain(typ, true))(exp);
+                typ.close();
             }
+
+            if (flag_set.find(flag::dot) != flag_set.end()) {
+                stringstream s;
+                s << file << ".dot";
+                fstream dot(s.str(), ios_base::out);
+                (dump_graph(dot))(exp->typing.type);
+                dot.close();
+            }
+
+            cout << exp->typing << "\n";
         }
         
         //cout << "profile: " << setprecision(16) << profile<type_unify>::report() << "us\n";
