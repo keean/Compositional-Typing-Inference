@@ -1231,64 +1231,6 @@ public:
 //----------------------------------------------------------------------------
 // Term Parser 
 
-struct return_app {
-    ast_factory& ast;
-    return_app(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res, term_expression* term) const {
-        if (*res == nullptr) {
-            *res = term;
-        } else {
-            *res = ast.new_term_application(*res, term);
-        }
-    }
-};
-
-struct return_prd {
-    ast_factory& ast;
-    return_prd(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res, term_expression* term) const {
-        if (*res == nullptr) {
-            *res = term;
-        } else {
-            *res = ast.new_term_product(*res, term);
-        }
-    }
-};
-
-struct return_abs {
-    ast_factory& ast;
-    return_abs(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res, string &name, term_expression *expr) const {
-        *res = ast.new_term_abstraction(name, expr);
-    }
-};
-
-struct return_let {
-    ast_factory& ast;
-    return_let(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res,
-        string const& name, term_expression *rhs, term_expression *body
-    ) const {
-        *res = ast.new_term_let(name, rhs, body);
-    }
-};
-
-struct return_var {
-    ast_factory& ast;
-    return_var(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res, string &name) const {
-        *res = ast.new_term_variable(name);
-    }
-};
-
-struct return_num {
-    ast_factory& ast;
-    return_num(ast_factory &ast) : ast(ast) {}
-    void operator() (term_expression **res, string &num) const {
-        *res = ast.new_term_literal(stoi(num));
-    }
-};
-
 auto const num_tok = name("number", tokenise(some(accept(is_digit))));
 auto const name_tok = except("let", except("in"
     , name("name", tokenise(some(accept(is_alpha)) && many(accept(is_alnum))))));
@@ -1301,31 +1243,86 @@ auto const ass_tok = tokenise(accept(is_char('=')));
 auto const in_tok = tokenise(accept_str("in"));
 auto const prod_tok = tokenise(accept(is_char(',')));
 auto const eof_tok = name("end-of-file", tokenise(accept(is_char(EOF))));
-    
-pstream_handle<term_expression*> parse_exp(return_app &app, return_abs &abs,
-    return_let &let, return_var &var, return_num &num,
-    pstream_handle<term_expression*> expr
-) {
-    return log("sub", discard(attempt(start_tok))
-            && strict("error parsing subexpression"
-            , expr && discard(end_tok)))
-        || log("abs", discard(attempt(abs_tok))
-            && strict("error parsing abstraction"
-            , all(abs, name_tok, discard(dot_tok) && expr)))
-        || log("let", discard(attempt(let_tok))
-            && strict("error parsing let"
-            , all(let, name_tok, discard(ass_tok) && expr, discard(in_tok) && expr)))
-        || log("var", all(var, attempt(name_tok)))
-        || log("num", all(num, attempt(num_tok)));
-}
 
 class term_parser {
-    return_app app;
-    return_prd prd;
-    return_abs abs;
-    return_let let;
-    return_var var;
-    return_num num;
+    struct return_app {
+        ast_factory& ast;
+        return_app(ast_factory &ast) : ast(ast) {}
+        void operator() (term_expression **res, term_expression* term) const {
+            if (*res == nullptr) {
+                *res = term;
+            } else {
+                *res = ast.new_term_application(*res, term);
+            }
+        }
+    } app;
+
+    struct return_prd {
+        ast_factory& ast;
+        return_prd(ast_factory &ast) : ast(ast) {}
+        void operator() (term_expression **res, term_expression* term) const {
+            if (*res == nullptr) {
+                *res = term;
+            } else {
+                *res = ast.new_term_product(*res, term);
+            }
+        }
+    } prd;
+
+    struct return_abs {
+        ast_factory& ast;
+        return_abs(ast_factory &ast) : ast(ast) {}
+        void operator() (term_expression **res, string &name, term_expression *expr) const {
+            *res = ast.new_term_abstraction(name, expr);
+        }
+    } abs;
+
+    struct return_let {
+        ast_factory& ast;
+        return_let(ast_factory &ast) : ast(ast) {}
+        void operator() (term_expression **res,
+            string const& name, term_expression *rhs, term_expression *body
+        ) const {
+            *res = ast.new_term_let(name, rhs, body);
+        }
+    } let;
+
+    struct return_var {
+        ast_factory& ast;
+        return_var(ast_factory &ast) : ast(ast) {}
+        void operator() (term_expression **res, string &name) const {
+            *res = ast.new_term_variable(name);
+        }
+    } var;
+
+    struct return_num {
+        ast_factory& ast;
+        return_num(ast_factory &ast) : ast(ast) {}
+        void operator() (term_expression **res, string &num) const {
+            *res = ast.new_term_literal(stoi(num));
+        }
+    } num;
+
+    pstream_handle<term_expression*> parse_exp(pstream_handle<term_expression*> expr) const {
+        return log("sub", discard(attempt(start_tok))
+                && strict("error parsing subexpression"
+                , expr && discard(end_tok)))
+            || log("abs", discard(attempt(abs_tok))
+                && strict("error parsing abstraction"
+                , all(abs, name_tok, discard(dot_tok) && expr)))
+            || log("let", discard(attempt(let_tok))
+                && strict("error parsing let"
+                , all(let, name_tok, discard(ass_tok) && expr, discard(in_tok) && expr)))
+            || log("var", all(var, attempt(name_tok)))
+            || log("num", all(num, attempt(num_tok)));
+    }
+
+    pstream_handle<term_expression*> const expr = 
+        all(app, parse_exp(reference("{expression}-", expr)))
+        && many(log("app",
+        all(app, parse_exp(reference("{expression}-", expr)))))
+        && many(log("prd", discard(attempt(prod_tok)) &&
+        all(prd, reference("{expression}-", expr))));
 
 public:
     term_parser(ast_factory &ast)
@@ -1333,15 +1330,8 @@ public:
 
     template <typename Range>
     term_expression* operator() (Range const& in) {
-        pstream_handle<term_expression*> const expr = 
-            all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr)))
-            && many(log("app",
-            all(app, parse_exp(app, abs, let, var, num, reference("{expression}-", expr)))))
-            && many(log("prd", discard(attempt(prod_tok)) &&
-            all(prd, reference("{expression}-", expr))));
-
-        auto const parser = first_token && expr && strict("unexpected trailing characters", attempt(discard(eof_tok)) || expr);
-
+        auto const parser = first_token && expr
+            && strict("unexpected trailing characters", attempt(discard(eof_tok)) || expr);
         decltype(parser)::result_type res {};
         typename Range::iterator i = in.first;
 
